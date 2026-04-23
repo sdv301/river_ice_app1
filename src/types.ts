@@ -3,6 +3,7 @@ export interface Settlement {
   name: string;
   coords: [number, number];
   isMajor?: boolean;
+  distanceToMouth?: number;
 }
 
 export type PickMode = 'none' | 'upper' | 'lower' | 'jam';

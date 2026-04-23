@@ -1,15 +1,20 @@
-Установите все зависимости (библиотеки для карт, иконок и т.д.). Для этого введите команду:
-code
-Bash
-npm install
-Дождитесь окончания установки — появится папка node_modules.
-Запустите сервер для разработки:
-code
-Bash
-npm run dev
-После запуска в терминале появится ссылка (обычно это http://localhost:5173 или http://localhost:3000). Просто Ctrl+Кликните по ней или скопируйте в браузер — и вы увидите ту же самую карту ледоходов, работающую у вас на компьютере!
-Дополнительно:
-Если в будущем вы захотите собрать финальную оптимизированную версию проекта (например, чтобы выложить на обычный хостинг), используйте команду сборки:
-code
-Bash
-npm run build
+<div align="center">
+<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+</div>
+
+# Run and deploy your AI Studio app
+
+This contains everything you need to run your app locally.
+
+View your app in AI Studio: https://ai.studio/apps/016146e6-f2f4-426d-b2a0-b599366334a7
+
+## Run Locally
+
+**Prerequisites:**  Node.js
+
+
+1. Install dependencies:
+   `npm install`
+2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+3. Run the app:
+   `npm run dev`

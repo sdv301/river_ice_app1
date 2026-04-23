@@ -1,0 +1,4039 @@
+{
+  "version": 8,
+  "name": "River Basin RUS",
+  "metadata": {
+    "mapbox:autocomposite": false,
+    "maputnik:renderer": "mbgljs"
+  },
+  "sources": {
+    "planet": {
+      "type": "vector",
+      "url": "https://frexosm.ru/tiles/basemap.json"
+    },
+    "basin": {
+      "type": "vector",
+      "url": "https://frexosm.ru/tiles/river-basin.json"
+    },
+    "mapzen-terrain-dem": {
+      "tiles": [
+        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+      ],
+      "type": "raster-dem",
+      "tileSize": 256
+    },
+    "hardcode-basin-label": {
+      "type": "geojson",
+      "data": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Волга"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                48,
+                56
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Обь"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                73,
+                61
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Енисей"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                92,
+                63
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Лена"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                125,
+                65
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Дон",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                41,
+                51
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Северная Двина",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                44,
+                62
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Амур"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                126,
+                52
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Печора"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                56,
+                66
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Колыма"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                156,
+                68
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Анадырь",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                173,
+                66
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Индигирка",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                147,
+                70
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Яна",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                135,
+                69
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Хатанга",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                105,
+                72.7
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Пясина",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                90,
+                72
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "sea": {
+      "type": "geojson",
+      "data": {
+        "type": "FeatureCollection",
+        "features": [
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Море Лаптевых"
+            },
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  112.14,
+                  77.95
+                ],
+                [
+                  115.31,
+                  77.23
+                ],
+                [
+                  119.97,
+                  76.35
+                ],
+                [
+                  123.57,
+                  75.73
+                ],
+                [
+                  127.79,
+                  75.14
+                ],
+                [
+                  132.01,
+                  74.59
+                ]
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Охотское море"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                149,
+                56
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Берингово море"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                184,
+                63
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Восточно-Сибирское море",
+              "size": ":2"
+            },
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  144.44,
+                  74.57
+                ],
+                [
+                  154.51,
+                  73.29
+                ],
+                [
+                  161.19,
+                  72.51
+                ],
+                [
+                  168.31,
+                  71.84
+                ],
+                [
+                  177.97,
+                  71.17
+                ]
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Карское море"
+            },
+            "geometry": {
+              "type": "LineString",
+              "coordinates": [
+                [
+                  59.37,
+                  72.39
+                ],
+                [
+                  64.11,
+                  74.03
+                ],
+                [
+                  67.19,
+                  74.83
+                ],
+                [
+                  70.71,
+                  75.57
+                ],
+                [
+                  75.06,
+                  76.35
+                ],
+                [
+                  79.89,
+                  77.02
+                ],
+                [
+                  84.02,
+                  77.49
+                ],
+                [
+                  89.03,
+                  77.9
+                ],
+                [
+                  95.45,
+                  78.45
+                ]
+              ]
+            }
+          },
+          {
+            "type": "Feature",
+            "properties": {
+              "name": "Баренцево море"
+            },
+            "geometry": {
+              "type": "Point",
+              "coordinates": [
+                42.75,
+                69.91
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "glyphs": "https://frexosm.ruhttps://frexosm.ru/fonts/{fontstack}/{range}.pbf",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": {
+        "background-color": "rgba(248, 248, 245, 1)"
+      }
+    },
+    {
+      "id": "ocean",
+      "type": "fill",
+      "source": "planet",
+      "source-layer": "ocean",
+      "paint": {
+        "fill-color": "rgba(186, 219, 241, 1)"
+      }
+    },
+    {
+      "id": "place",
+      "type": "fill",
+      "source": "planet",
+      "source-layer": "place_land",
+      "minzoom": 0,
+      "maxzoom": 24,
+      "layout": {
+        "visibility": "visible"
+      },
+      "paint": {
+        "fill-color": {
+          "stops": [
+            [
+              5,
+              "rgba(212, 212, 208, 1)"
+            ],
+            [
+              18,
+              "rgba(255, 255, 252, 0.5)"
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "mapzen-terrain-dem",
+      "type": "hillshade",
+      "source": "mapzen-terrain-dem",
+      "minzoom": 7,
+      "paint": {
+        "hillshade-highlight-color": "hsl(0, 8%, 87%)",
+        "hillshade-shadow-color": "hsl(0, 8%, 42%)",
+        "hillshade-exaggeration": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          7,
+          0,
+          8,
+          0.1
+        ]
+      }
+    },
+    {
+      "id": "water-lake",
+      "type": "fill",
+      "source": "basin",
+      "source-layer": "water",
+      "paint": {
+        "fill-color": "rgba(186, 219, 241, 1)"
+      }
+    },
+    {
+      "id": "other-basin-large",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          ">",
+          "basin",
+          45
+        ],
+        [
+          ">",
+          "length",
+          2000
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(124, 129, 158, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "other-basin-medium",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          ">",
+          "basin",
+          37
+        ],
+        [
+          ">",
+          "length",
+          500
+        ],
+        [
+          "<=",
+          "length",
+          2000
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(145, 148, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              9,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "other-basin-small-copy",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          ">",
+          "basin",
+          37
+        ],
+        [
+          "<=",
+          "length",
+          500
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(171, 175, 201, 1)",
+        "line-width": 1
+      }
+    },
+    {
+      "id": "other-basin-stream-color",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "minzoom": 9,
+      "filter": [
+        "any",
+        [
+          "==",
+          "class",
+          "stream"
+        ],
+        [
+          "==",
+          "class",
+          "drain"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel",
+        "visibility": "visible"
+      },
+      "paint": {
+        "line-color": [
+          "match",
+          [
+            "get",
+            "basin"
+          ],
+          [
+            1
+          ],
+          "rgba(48, 88, 251, 1)",
+          [
+            2
+          ],
+          "rgba(72, 230, 209, 1)",
+          [
+            3
+          ],
+          "rgba(242, 84, 238, 1)",
+          [
+            4
+          ],
+          "rgba(242, 161, 84, 1)",
+          [
+            5
+          ],
+          "rgba(77, 170, 211, 1)",
+          [
+            6
+          ],
+          "rgba(147, 242, 84, 1)",
+          [
+            7
+          ],
+          "rgba(148, 214, 81, 1)",
+          [
+            8
+          ],
+          "rgba(242, 84, 119, 1)",
+          [
+            9
+          ],
+          "rgba(84, 242, 145, 1)",
+          [
+            10
+          ],
+          "rgba(81, 88, 214, 1)",
+          [
+            11
+          ],
+          "rgba(81, 214, 112, 1)",
+          [
+            12
+          ],
+          "rgba(214, 175, 81, 1)",
+          [
+            13
+          ],
+          "rgba(217, 83, 218, 1)",
+          [
+            14
+          ],
+          "rgba(208, 81, 214, 1)",
+          [
+            15
+          ],
+          "rgba(214, 136, 81, 1)",
+          [
+            16
+          ],
+          "rgba(81, 182, 214, 1)",
+          [
+            17
+          ],
+          "rgba(81, 132, 214, 1)",
+          [
+            18
+          ],
+          "rgba(214, 81, 81, 1)",
+          [
+            19
+          ],
+          "rgba(81, 206, 214, 1)",
+          [
+            20
+          ],
+          "rgba(124, 214, 81, 1)",
+          [
+            21
+          ],
+          "rgba(214, 81, 81, 1)",
+          [
+            22
+          ],
+          "rgba(124, 214, 81, 1)",
+          [
+            23
+          ],
+          "rgba(124, 214, 81, 1)",
+          [
+            24
+          ],
+          "rgba(124, 214, 81, 1)",
+          [
+            25
+          ],
+          "rgba(214, 81, 81, 1)",
+          [
+            26
+          ],
+          "rgba(81, 97, 214, 1)",
+          [
+            27
+          ],
+          "rgba(214, 81, 83, 1)",
+          [
+            28
+          ],
+          "rgba(214, 81, 83, 1)",
+          [
+            29
+          ],
+          "rgba(179, 81, 214, 1)",
+          [
+            30
+          ],
+          "rgba(81, 214, 93, 1)",
+          [
+            31
+          ],
+          "rgba(81, 214, 93, 1)",
+          [
+            32
+          ],
+          "rgba(81, 102, 214, 1)",
+          [
+            33
+          ],
+          "rgba(214, 81, 145, 1)",
+          [
+            34
+          ],
+          "rgba(214, 81, 180, 1)",
+          [
+            35
+          ],
+          "rgba(26, 137, 110, 1)",
+          [
+            36
+          ],
+          "rgba(185, 18, 207, 1)",
+          [
+            37
+          ],
+          "rgba(0, 53, 255, 1)",
+          [
+            38
+          ],
+          "rgba(207, 99, 18, 1)",
+          [
+            39
+          ],
+          "rgba(185, 18, 207, 1)",
+          [
+            40
+          ],
+          "rgba(207, 89, 18, 1)",
+          [
+            41
+          ],
+          "rgba(185, 18, 207, 1)",
+          [
+            42
+          ],
+          "rgba(207, 18, 25, 1)",
+          [
+            43
+          ],
+          "rgba(18, 154, 207, 1)",
+          [
+            44
+          ],
+          "rgba(99, 57, 224, 1)",
+          [
+            45
+          ],
+          "rgba(26, 137, 48, 1)",
+          "rgba(171, 175, 201, 1)"
+        ],
+        "line-width": 1
+      }
+    },
+    {
+      "id": "basin-kem'-45",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          45
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(26, 137, 48, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-kuma-44",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          44
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(99, 57, 224, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-soroka-43",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          43
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(18, 154, 207, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-seym-42",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          42
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(207, 18, 25, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-kovda-41",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          41
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(185, 18, 207, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-kuloy-39",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          39
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(185, 18, 207, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-ponoy-38",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          38
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(207, 99, 18, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-Tym'-40",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          40
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(207, 89, 18, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-ohota-37",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          37
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(0, 53, 255, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-alazeya-36",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          36
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(160, 53, 151, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-velikaya-35",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          35
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(26, 137, 110, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-sulak-34",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          34
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 180, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-dnepr-33",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          33
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 180, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-chaun-32",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          32
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 102, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-poronay-31",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          31
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 214, 93, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-zap-dvina-30",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          30
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 214, 93, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-verh-taimir-29",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          29
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(179, 81, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-nadim-28",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          28
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 83, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-desna-27",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          27
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 83, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-anabar-26",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          26
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 97, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-onega-25",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          25
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-uda-24",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          24
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(124, 214, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-kamcatka-23",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          23
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(124, 214, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-terek-22",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          22
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(124, 214, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-pasina-21",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          21
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-taz-20",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          20
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(124, 214, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-olenek-19",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          19
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 206, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-kuban-18",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          18
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 81, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-mezen-17",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          17
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 132, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-pur-16",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          16
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 182, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-anadir-15",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          15
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 136, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-ural-14",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          14
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(208, 81, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-yna-13",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          13
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(217, 83, 218, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-neva-12",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          12
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(214, 175, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-hatanga-11",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          11
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 214, 112, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-indigirka-10",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          10
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(81, 88, 214, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-don-9",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          9
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(84, 242, 145, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-pechora",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          8
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(242, 84, 119, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-kolima",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          7
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(148, 214, 81, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-sev-dvina",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          6
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(147, 242, 84, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-amur",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          5
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(77, 170, 211, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-lena",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          4
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(242, 161, 84, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-enisey",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          3
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(242, 84, 238, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-obi",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          2
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(72, 230, 209, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "basin-volga",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          1
+        ],
+        [
+          "==",
+          "class",
+          "river"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(48, 88, 251, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              1
+            ],
+            [
+              7,
+              2
+            ]
+          ]
+        },
+        "line-opacity": 1
+      }
+    },
+    {
+      "id": "river-kuma-44",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          44
+        ],
+        [
+          "==",
+          "name",
+          "Кума"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(66, 29, 174, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-tym'-40",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          40
+        ],
+        [
+          "==",
+          "name",
+          "Тымь"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(176, 82, 18, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-velikaya-35",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          35
+        ],
+        [
+          "==",
+          "name",
+          "Великая"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(26, 137, 110, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-sulak-34",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          34
+        ],
+        [
+          "==",
+          "name",
+          "Сулак"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 69, 150, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-dnepr-33",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          33
+        ],
+        [
+          "==",
+          "name",
+          "Днепр"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(176, 67, 148, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-poronay-31",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          31
+        ],
+        [
+          "==",
+          "name",
+          "Поронай"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(71, 184, 80, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-anabar-26",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          26
+        ],
+        [
+          "==",
+          "name",
+          "Анабар"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 16, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-onega-25",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          25
+        ],
+        [
+          "==",
+          "name",
+          "Онега"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 47, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-kamcatka-23",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          23
+        ],
+        [
+          "==",
+          "name",
+          "Камчатка"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 178, 43, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-terek-22",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          22
+        ],
+        [
+          "==",
+          "name",
+          "Терек"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(32, 178, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-pasina-21",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          21
+        ],
+        [
+          "==",
+          "name",
+          "Пясина"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 1, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-taz-20",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          20
+        ],
+        [
+          "==",
+          "name",
+          "Таз"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(58, 178, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-olenek-19",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          19
+        ],
+        [
+          "==",
+          "name",
+          "Оленёк"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 142, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-kuban-18",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          18
+        ],
+        [
+          "==",
+          "name",
+          "Кубань"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 47, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-mezen-17",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          17
+        ],
+        [
+          "==",
+          "name",
+          "Мезень"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 82, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-pur-16",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          16
+        ],
+        [
+          "==",
+          "name",
+          "Пур"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 135, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-anadir-15",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          15
+        ],
+        [
+          "==",
+          "name",
+          "Анадырь"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 113, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-ural-14",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          14
+        ],
+        [
+          "==",
+          "name",
+          "Урал"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(177, 1, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-yna-13",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          13
+        ],
+        [
+          "==",
+          "name",
+          "Яна"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(177, 1, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-neva-12",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          12
+        ],
+        [
+          "==",
+          "name",
+          "Нева"
+        ]
+      ],
+      "layout": {
+        "visibility": "none",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 153, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-hatanga-11",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          11
+        ],
+        [
+          "==",
+          "name",
+          "Хатанга"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 178, 10, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-indigirka-10",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          10
+        ],
+        [
+          "==",
+          "name",
+          "Индигирка"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 16, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-don",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          9
+        ],
+        [
+          "==",
+          "name",
+          "Дон"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 178, 89, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-pochora",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          8
+        ],
+        [
+          "==",
+          "name",
+          "Печора"
+        ]
+      ],
+      "layout": {
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 1, 47, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-kolima",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          7
+        ],
+        [
+          "==",
+          "name",
+          "Колыма"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(131, 178, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-sev-dvina",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          6
+        ],
+        [
+          "==",
+          "name",
+          "Северная Двина"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(71, 178, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-amur",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          5
+        ],
+        [
+          "==",
+          "name",
+          "Амур"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 122, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-lena",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          4
+        ],
+        [
+          "==",
+          "name",
+          "Лена"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 107, 1, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-enisey",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          3
+        ],
+        [
+          "==",
+          "name",
+          "Енисей"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(178, 1, 172, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-obi",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          2
+        ],
+        [
+          "==",
+          "name",
+          "Обь"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 178, 175, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "river-volga",
+      "type": "line",
+      "source": "basin",
+      "source-layer": "river",
+      "filter": [
+        "all",
+        [
+          "==",
+          "basin",
+          1
+        ],
+        [
+          "==",
+          "name",
+          "Волга"
+        ]
+      ],
+      "layout": {
+        "visibility": "visible",
+        "line-cap": "round",
+        "line-join": "bevel"
+      },
+      "paint": {
+        "line-color": "rgba(1, 38, 178, 1)",
+        "line-width": {
+          "stops": [
+            [
+              3,
+              2
+            ],
+            [
+              7,
+              5
+            ]
+          ]
+        }
+      }
+    },
+    {
+      "id": "place-capital",
+      "type": "symbol",
+      "source": "planet",
+      "source-layer": "place",
+      "filter": [
+        "all",
+        [
+          "<=",
+          "capital",
+          4
+        ]
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "symbol-z-order": "auto",
+        "symbol-sort-key": [
+          "to-number",
+          [
+            "get",
+            "capital"
+          ]
+        ],
+        "text-size": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "zoom"
+          ],
+          4,
+          [
+            "match",
+            [
+              "get",
+              "capital"
+            ],
+            2,
+            18,
+            3,
+            12,
+            4,
+            12,
+            5
+          ],
+          10,
+          [
+            "match",
+            [
+              "get",
+              "capital"
+            ],
+            2,
+            22,
+            3,
+            16,
+            4,
+            16,
+            5
+          ]
+        ]
+      },
+      "paint": {
+        "text-halo-width": 4,
+        "text-halo-blur": 2,
+        "text-halo-color": "rgba(240, 236, 236, 1)",
+        "text-color": "rgba(45, 39, 33, 1)"
+      }
+    },
+    {
+      "id": "place-town",
+      "type": "symbol",
+      "source": "planet",
+      "source-layer": "place",
+      "minzoom": 8,
+      "filter": [
+        "any",
+        [
+          "==",
+          "class",
+          "town"
+        ],
+        [
+          "==",
+          "class",
+          "city"
+        ]
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "symbol-z-order": "auto",
+        "symbol-sort-key": [
+          "to-number",
+          [
+            "get",
+            "capital"
+          ]
+        ],
+        "text-size": {
+          "stops": [
+            [
+              9,
+              10
+            ],
+            [
+              12,
+              16
+            ]
+          ]
+        }
+      },
+      "paint": {
+        "text-halo-width": 4,
+        "text-halo-blur": 2,
+        "text-halo-color": "rgba(240, 236, 236, 1)",
+        "text-color": "rgba(45, 39, 33, 1)"
+      }
+    },
+    {
+      "id": "place-village",
+      "type": "symbol",
+      "source": "planet",
+      "source-layer": "place",
+      "minzoom": 11,
+      "filter": [
+        "any",
+        [
+          "==",
+          "class",
+          "village"
+        ],
+        [
+          "==",
+          "class",
+          "hamlet"
+        ]
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "symbol-z-order": "auto",
+        "symbol-sort-key": [
+          "to-number",
+          [
+            "get",
+            "capital"
+          ]
+        ],
+        "text-size": {
+          "stops": [
+            [
+              11,
+              8
+            ],
+            [
+              12,
+              12
+            ]
+          ]
+        }
+      },
+      "paint": {
+        "text-halo-width": 4,
+        "text-halo-blur": 2,
+        "text-halo-color": "rgba(240, 236, 236, 1)",
+        "text-color": "rgba(45, 39, 33, 1)"
+      }
+    },
+    {
+      "id": "label-river-main",
+      "type": "symbol",
+      "source": "hardcode-basin-label",
+      "minzoom": 3,
+      "maxzoom": 6,
+      "filter": [
+        "all"
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "symbol-placement": "point",
+        "text-size": [
+          "match",
+          [
+            "get",
+            "size"
+          ],
+          ":2",
+          24,
+          48
+        ],
+        "icon-allow-overlap": false,
+        "icon-ignore-placement": false,
+        "text-allow-overlap": false,
+        "text-ignore-placement": false,
+        "symbol-avoid-edges": false,
+        "symbol-spacing": 20,
+        "text-padding": 0
+      },
+      "paint": {
+        "text-color": "rgba(68, 69, 80, 1)",
+        "text-opacity": {
+          "stops": [
+            [
+              5,
+              1
+            ],
+            [
+              6,
+              0
+            ]
+          ]
+        },
+        "text-halo-width": [
+          "match",
+          [
+            "get",
+            "size"
+          ],
+          ":2",
+          5,
+          10
+        ],
+        "text-halo-color": "rgba(255, 255, 255, 0.8)",
+        "text-halo-blur": 3
+      }
+    },
+    {
+      "id": "sea-point",
+      "type": "symbol",
+      "source": "sea",
+      "filter": [
+        "all",
+        [
+          "==",
+          "$type",
+          "Point"
+        ]
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "symbol-placement": "point",
+        "text-size": 24,
+        "icon-text-fit": "none",
+        "text-justify": "center",
+        "text-anchor": "center",
+        "text-letter-spacing": 0.2,
+        "text-max-width": 8,
+        "text-line-height": 2,
+        "text-transform": "uppercase",
+        "symbol-avoid-edges": false
+      },
+      "paint": {
+        "text-color": "rgba(32, 43, 90, 1)",
+        "text-halo-width": 3,
+        "text-halo-blur": 1,
+        "text-halo-color": "rgba(74, 101, 148, 0.14)"
+      }
+    },
+    {
+      "id": "sea-line",
+      "type": "symbol",
+      "source": "sea",
+      "filter": [
+        "all",
+        [
+          "==",
+          "$type",
+          "LineString"
+        ]
+      ],
+      "layout": {
+        "text-field": "{name}",
+        "symbol-placement": "line",
+        "icon-text-fit": "none",
+        "text-justify": "center",
+        "text-anchor": "center",
+        "text-letter-spacing": 0.2,
+        "text-transform": "uppercase",
+        "text-keep-upright": false,
+        "text-max-width": 100,
+        "text-size": [
+          "match",
+          [
+            "get",
+            "size"
+          ],
+          ":2",
+          18,
+          24
+        ]
+      },
+      "paint": {
+        "text-color": "rgba(32, 43, 90, 1)",
+        "text-halo-width": 3,
+        "text-halo-blur": 1,
+        "text-halo-color": "rgba(74, 101, 148, 0.14)"
+      }
+    }
+  ],
+  "id": "river-basin",
+  "owner": "freeExec",
+  "created": "2020-12-01T12:00:00Z",
+  "modified": "2022-09-03T14:00:00Z",
+  "release": "1.4"
+}

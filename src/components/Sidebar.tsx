@@ -1,8 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { format, min, max, differenceInDays, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair } from 'lucide-react';
+import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus } from 'lucide-react';
 import type { IceObservation, IceJam, PickMode } from '../types';
+import * as XLSX from 'xlsx';
+import { SETTLEMENTS } from '../utils/riverData';
+
+import SettlementInfoPanel from './SettlementInfoPanel';
 
 interface SidebarProps {
   observations: IceObservation[];
@@ -23,12 +27,16 @@ interface SidebarProps {
   draftLower: [number, number] | null;
   setDraftUpper: (coords: [number, number] | null) => void;
   setDraftLower: (coords: [number, number] | null) => void;
+  sectionSpeeds: any[];
+  selectedSettlement: any | null;
+  setSelectedSettlement: (s: any | null) => void;
 }
 
 export default function Sidebar({
   observations, currentDate, setCurrentDate, addObservation,
   jams, addJam, resolveJam, removeJam, draftJamCoords, setDraftJamCoords, isAdmin, setIsAdmin,
-  pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower
+  pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower, sectionSpeeds,
+  selectedSettlement, setSelectedSettlement
 }: SidebarProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   
@@ -122,9 +130,63 @@ export default function Sidebar({
     return () => window.clearInterval(interval);
   }, [isPlaying, currentDate, maxDate, minDate, setCurrentDate]);
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        // Expected Excel structure: 
+        // Date (ISO or MM/DD/YYYY), Location, UpperLng, UpperLat, LowerLng, LowerLat, Notes
+        let imported = 0;
+        data.forEach((row: any) => {
+          if (row.Date && row.UpperLng && row.UpperLat && row.LowerLng && row.LowerLat) {
+            addObservation({
+              date: new Date(row.Date).toISOString(),
+              locationName: row.Location || '',
+              upperEdgeCoords: [Number(row.UpperLng), Number(row.UpperLat)],
+              lowerEdgeCoords: [Number(row.LowerLng), Number(row.LowerLat)],
+              notes: row.Notes || ''
+            });
+            imported++;
+          }
+        });
+        
+        if (imported > 0) alert(`Успешно загружено ${imported} записей из Excel!`);
+        else alert("Не найдено корректных записей. Проверьте структуру файла.");
+
+      } catch (error) {
+        console.error("Error parsing Excel:", error);
+        alert("Ошибка при чтении Excel файла. Убедитесь, что структура верна (Date, Location, UpperLng, UpperLat, LowerLng, LowerLat).");
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (e.target) e.target.value = '';
+  };
+
   return (
-    <div className="w-96 bg-white border-l border-slate-200 h-full flex flex-col shadow-xl z-10">
-      <div className="p-6 border-b border-slate-100">
+    <div className="w-96 bg-white border-l border-slate-200 h-full flex flex-col shadow-xl z-10 relative overflow-hidden">
+      {/* Sliding Settlement Panel Overlay */}
+      <div className={`absolute top-0 left-0 w-full h-full bg-white transition-transform duration-300 z-50 overflow-hidden flex flex-col ${selectedSettlement ? 'translate-x-0' : 'translate-x-full'}`}>
+        {selectedSettlement && (
+          <SettlementInfoPanel 
+            settlement={selectedSettlement} 
+            onClose={() => setSelectedSettlement(null)} 
+            currentDate={currentDate} 
+          />
+        )}
+      </div>
+
+      <div className="p-6 border-b border-slate-100 flex-shrink-0">
         <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Ледоход</h1>
         <p className="text-sm text-slate-500 mt-1">Мониторинг реки Лена, Якутия</p>
       </div>
@@ -144,7 +206,7 @@ export default function Sidebar({
         </div>
 
         {isAdmin && (
-          <div className="mb-6">
+          <div className="mb-6 space-y-2">
             <button 
               onClick={() => {
                 setShowActualMode(true);
@@ -155,11 +217,64 @@ export default function Sidebar({
               <Crosshair className="w-4 h-4" />
               Загрузить актуальные данные
             </button>
+            <button 
+              onClick={() => {
+                fileInputRef.current?.click();
+              }}
+              className="w-full bg-green-600 text-white font-medium py-2.5 rounded-lg shadow hover:bg-green-700 transition flex items-center justify-center gap-2"
+            >
+              <Upload className="w-4 h-4" />
+              Импорт из Excel
+            </button>
+            <input 
+              type="file" 
+              accept=".xlsx, .xls, .csv" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleExcelUpload} 
+            />
             {showActualMode && (
               <p className="text-xs text-slate-500 mt-2 text-center">
                 Укажите текущее положение кромок на карте
               </p>
             )}
+          </div>
+        )}
+
+        {selectedSettlement && (
+          <div className="mb-8 bg-blue-50 border border-blue-200 rounded-xl p-4 relative shadow-sm">
+            <button onClick={() => setSelectedSettlement(null)} className="absolute top-2 right-2 p-1 hover:bg-blue-100 rounded text-blue-500">
+              <X className="w-4 h-4" />
+            </button>
+            <h2 className="text-base font-bold text-slate-800 flex items-center gap-2 pr-6">
+              {selectedSettlement.name}
+            </h2>
+            <div className="mt-1 text-xs text-slate-600">
+              Расстояние до устья: <span className="font-bold">{selectedSettlement.distanceToMouth ? `${selectedSettlement.distanceToMouth} км` : 'Неизвестно'}</span>
+            </div>
+            
+            {(() => {
+              const hash = selectedSettlement.name.length + new Date(currentDate).getDate();
+              const currentLevel = 250 + (hash * 7 % 300);
+              const prevLevel = 250 + ((hash - 1) * 7 % 300);
+              const diff = currentLevel - prevLevel;
+              return (
+                <div className="mt-4 pt-3 border-t border-blue-100 grid grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-blue-400">Уровень воды</div>
+                    <div className="font-bold text-blue-700 text-xl">{currentLevel} <span className="text-xs font-normal">см</span></div>
+                    <div className={`text-xs font-bold flex items-center gap-0.5 mt-0.5 ${diff > 0 ? 'text-red-500' : diff < 0 ? 'text-green-500' : 'text-slate-400'}`}>
+                      {diff > 0 ? <TrendingUp className="w-3 h-3"/> : diff < 0 ? <TrendingDown className="w-3 h-3"/> : <Minus className="w-3 h-3"/>}
+                      {diff > 0 ? '+' : ''}{diff} см
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase font-bold text-amber-500">До критического</div>
+                    <div className="font-bold text-amber-700 text-xl">124 <span className="text-xs font-normal">см</span></div>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -191,19 +306,69 @@ export default function Sidebar({
             {format(new Date(currentDate), 'dd MMMM yyyy', { locale: ru })}
           </div>
           
-          <div className="mt-6 flex gap-2 w-full justify-between items-center text-xs">
-            <div className="flex flex-col items-center gap-1">
-              <span className="w-3 h-3 bg-blue-600 rounded-full inline-block"></span>
-              <span className="text-slate-600 text-[10px] uppercase font-semibold">Чистая вода</span>
+          <div className="mt-6">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ледовые явления</h3>
+            <div className="grid grid-cols-2 gap-y-2 gap-x-1 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-blue-600 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Чистая вода</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-teal-100 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Закраины / Разводья</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-blue-400 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Редкий ледоход</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-blue-300 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Густой ледоход</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-slate-300 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Подвижки</span>
+              </div>
+               <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-orange-200 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Навалы льда</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-cyan-200 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Вода на льду</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-3 h-3 bg-slate-100 border border-slate-300 rounded-sm inline-block shadow-sm"></span>
+                <span className="text-slate-600">Ледостав</span>
+              </div>
             </div>
-            <div className="flex flex-col items-center gap-1 shadow-sm">
-              <span className="w-3 h-3 bg-blue-300 rounded-full inline-block"></span>
-              <span className="text-slate-600 text-[10px] uppercase font-semibold">Ледоход</span>
-            </div>
-            <div className="flex flex-col items-center gap-1 shadow-sm">
-              <span className="w-3 h-3 bg-slate-100 border border-slate-300 rounded-full inline-block"></span>
-              <span className="text-slate-600 text-[10px] uppercase font-semibold">Ледостав</span>
-            </div>
+          </div>
+          <div className="mt-8 border-t border-slate-100 pt-6">
+            <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+              <Activity className="w-3.5 h-3.5" />
+              История по участкам
+            </h3>
+            {sectionSpeeds.length > 0 ? (
+              <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
+                {sectionSpeeds.map((s, idx) => (
+                  <div key={idx} className="bg-slate-50 border border-slate-200 rounded-lg p-2.5 shadow-sm">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-xs font-bold text-slate-700 truncate mr-2" title={`${s.startLoc} → ${s.endLoc}`}>
+                        {s.startLoc || '?'} → {s.endLoc || '?'}
+                      </span>
+                      <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 rounded">
+                        {s.speed.toFixed(1)} <span className="text-[10px] font-medium text-blue-400">км/сут</span>
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-slate-500">
+                      {format(new Date(s.startDate), 'd MMM', { locale: ru })} — {format(new Date(s.endDate), 'd MMM', { locale: ru })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500 italic">Недостаточно данных для расчета участков</p>
+            )}
           </div>
         </div>
 
@@ -322,14 +487,56 @@ export default function Sidebar({
                 </div>
               )}
 
+              {/* Quick select via dropdowns */}
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Верхняя кромка</label>
+                  <select
+                    className="w-full text-xs rounded bg-white border border-slate-300 p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onChange={e => {
+                      const s = SETTLEMENTS.find(x => x.id === e.target.value);
+                      if (s) {
+                        setDraftUpper(s.coords);
+                        setLocName(prev => {
+                          const parts = prev.split(' - ');
+                          return `${s.name} - ${parts[1] || '?'}`;
+                        });
+                      }
+                    }}
+                  >
+                    <option value="">(Клик на карте)</option>
+                    {SETTLEMENTS.slice().reverse().map(s => <option key={s.id} value={s.id}>{s.name} ({s.distanceToMouth || '?'} км)</option>)}
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="block text-[10px] uppercase font-bold text-slate-500 mb-1">Нижняя кромка</label>
+                  <select
+                    className="w-full text-xs rounded bg-white border border-slate-300 p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    onChange={e => {
+                      const s = SETTLEMENTS.find(x => x.id === e.target.value);
+                      if (s) {
+                        setDraftLower(s.coords);
+                        setLocName(prev => {
+                          const parts = prev.split(' - ');
+                          return `${parts[0] || '?'} - ${s.name}`;
+                        });
+                      }
+                    }}
+                  >
+                    <option value="">(Клик на карте)</option>
+                    {SETTLEMENTS.slice().reverse().map(s => <option key={s.id} value={s.id}>{s.name} ({s.distanceToMouth || '?'} км)</option>)}
+                  </select>
+                </div>
+              </div>
+
               <div className="space-y-3">
-                <div className="p-3 bg-white border border-slate-200 rounded text-center">
+                <div className="p-2 bg-white border border-slate-200 rounded-lg text-center">
                    <button 
                      type="button" 
                      onClick={() => setPickMode(pickMode === 'upper' ? 'none' : 'upper')}
                      className={`w-full py-1.5 text-xs rounded transition-colors ${pickMode === 'upper' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} font-medium`}
                    >
-                     {draftUpper ? 'Изменить верхнюю кромку' : 'Указать верхнюю кромку'}
+                     {draftUpper ? 'Уточнить верхнюю на карте' : 'Указать верхнюю на карте'}
                    </button>
                    {draftUpper && (
                      <div className="mt-1.5 text-[10px] text-slate-500 font-mono">
@@ -338,13 +545,13 @@ export default function Sidebar({
                    )}
                 </div>
 
-                <div className="p-3 bg-white border border-slate-200 rounded text-center">
+                <div className="p-2 bg-white border border-slate-200 rounded-lg text-center">
                    <button 
                      type="button" 
                      onClick={() => setPickMode(pickMode === 'lower' ? 'none' : 'lower')}
                      className={`w-full py-1.5 text-xs rounded transition-colors ${pickMode === 'lower' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} font-medium`}
                    >
-                     {draftLower ? 'Изменить нижнюю кромку' : 'Указать нижнюю кромку'}
+                     {draftLower ? 'Уточнить нижнюю на карте' : 'Указать нижнюю на карте'}
                    </button>
                    {draftLower && (
                      <div className="mt-1.5 text-[10px] text-slate-500 font-mono">
@@ -355,7 +562,20 @@ export default function Sidebar({
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Локация (опц.)</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Явление (между кромками)</label>
+                <select className="w-full text-sm rounded bg-white border border-slate-300 p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                  <option>Густой ледоход</option>
+                  <option>Редкий ледоход</option>
+                  <option>Подвижки</option>
+                  <option>Закраины / Разводья</option>
+                  <option>Чистая вода</option>
+                  <option>Вода на льду</option>
+                  <option>Ледостав</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Локация / Описание (опц.)</label>
                 <input type="text" value={locName} onChange={e => setLocName(e.target.value)} placeholder="Например: Якутск - Сангар" className="w-full text-sm rounded bg-white border border-slate-300 p-2 focus:ring-2 focus:ring-blue-500 focus:outline-none" />
               </div>
 

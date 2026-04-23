@@ -26,6 +26,15 @@ export function snapToRiver(coords: [number, number]): [number, number] {
   return snap.geometry.coordinates as [number, number];
 }
 
+export function getRiverDistance(c1: [number, number], c2: [number, number]): number {
+  const line = lenaRiverFeature;
+  const snap1 = nearestPointOnLine(line, point(c1), { units: 'kilometers' });
+  const snap2 = nearestPointOnLine(line, point(c2), { units: 'kilometers' });
+  const dist1 = snap1.properties.location ?? 0;
+  const dist2 = snap2.properties.location ?? 0;
+  return Math.abs(dist2 - dist1);
+}
+
 export function getSegments(upperEdge: [number, number] | null, lowerEdge: [number, number] | null): Feature<LineString>[] {
   const line = lenaRiverFeature;
   const totalLength = turfLength(line, { units: 'kilometers' });
