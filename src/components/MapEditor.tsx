@@ -1,29 +1,12 @@
-import React, { useMemo, useState } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
+import Map, { Source, Layer, Marker, NavigationControl, Popup, useMap } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource } from '../utils/mapUtils';
-import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers } from 'lucide-react';
+import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home } from 'lucide-react';
 import type { IceJam, PickMode } from '../types';
 import { SETTLEMENTS } from '../utils/riverData';
-import yakutiaBoundaries from '../utils/yakutia_boundaries.json';
-import basinStyle from '../utils/frexosm_basin_style.json';
-
-interface MapEditorProps {
-  currentData: {
-    upperEdgeCoords: [number, number];
-    lowerEdgeCoords: [number, number];
-  } | null;
-  jams: IceJam[];
-  draftJamCoords: [number, number] | null;
-  setDraftJamCoords: (coords: [number, number] | null) => void;
-  isAdmin: boolean;
-  pickMode: PickMode;
-  draftUpper: [number, number] | null;
-  draftLower: [number, number] | null;
-  setDraftUpper: (coords: [number, number] | null) => void;
-  setDraftLower: (coords: [number, number] | null) => void;
-  onSettlementClick: (settlement: any) => void;
-}
+import { useAppStore } from '../store/appStore';
+import { useIceStore } from '../store/iceStore';
 
 type MapType = 'satellite' | 'vector' | '3d' | 'basin';
 
@@ -59,17 +42,32 @@ const MAP_STYLES: Record<string, any> = {
     terrain: { source: 'mapzen-terrain-dem', exaggeration: 1.5 },
     layers: [{ id: 'satellite', type: 'raster', source: 'esri-satellite', minzoom: 0, maxzoom: 22 }]
   },
-  'basin': basinStyle
+  'basin': '/frexosm_basin_style.json'
 };
 
-export default function MapEditor({ 
-  currentData, jams, draftJamCoords, setDraftJamCoords, isAdmin, 
-  pickMode, draftUpper, draftLower, setDraftUpper, setDraftLower,
-  onSettlementClick
-}: MapEditorProps) {
+export default function MapEditor() {
+  const { getCurrentObservationData, jams, draftJamCoords, setDraftJamCoords } = useIceStore();
+  const currentData = getCurrentObservationData();
+  const { 
+    isAdmin, pickMode, draftUpper, draftLower, 
+    setDraftUpper, setDraftLower,
+    setSelectedSettlement, selectedSettlement, mapCenter
+  } = useAppStore();
+  const mapRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (mapCenter && mapRef.current) {
+      mapRef.current.flyTo({ center: [mapCenter.lng, mapCenter.lat], zoom: mapCenter.zoom, essential: true });
+    }
+  }, [mapCenter]);
   
   const [mapType, setMapType] = useState<MapType>('satellite');
+  const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: mapType === '3d' ? 60 : 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
+
+  useEffect(() => {
+    setViewState(prev => ({ ...prev, pitch: mapType === '3d' ? 60 : 0 }));
+  }, [mapType]);
   
   const geojsonSource = useMemo(() => {
     const segments = getSegments(
@@ -142,12 +140,9 @@ export default function MapEditor({
       </div>
 
       <Map
-        initialViewState={{
-          longitude: 129.7, // Yakutsk
-          latitude: 62.0,
-          zoom: 5,
-          pitch: mapType === '3d' ? 60 : 0,
-        }}
+        ref={mapRef}
+        {...viewState}
+        onMove={evt => setViewState(evt.viewState)}
         mapStyle={MAP_STYLES[mapType]}
         interactiveLayerIds={['river-line', 'yakutia-district-fill']}
         cursor={cursorType}
@@ -155,7 +150,7 @@ export default function MapEditor({
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHoverInfo(null)}
       >
-        <Source id="yakutia-bounds" type="geojson" data={yakutiaBoundaries as any}>
+        <Source id="yakutia-bounds" type="geojson" data="/yakutia_boundaries.json">
           <Layer
             id="yakutia-district-fill"
             type="fill"
@@ -273,24 +268,42 @@ export default function MapEditor({
           </Marker>
         )}
 
-        {/* Render Settlements */}
-        {SETTLEMENTS.map(settlement => (
-          <Marker key={settlement.id} longitude={settlement.coords[0]} latitude={settlement.coords[1]} anchor="center">
-             <div 
-               className="flex items-center gap-1 group cursor-pointer hover:scale-110 transition-transform"
-               onClick={(e) => {
-                 e.stopPropagation();
-                 onSettlementClick(settlement);
-               }}
-             >
-               <CircleDot className={`w-3 h-3 ${settlement.isMajor ? 'text-white fill-slate-800' : 'text-slate-200 fill-slate-600'} drop-shadow`} />
-               <span className={`text-[10px] font-bold drop-shadow-md whitespace-nowrap pl-0.5 ${settlement.isMajor ? 'text-white' : 'text-slate-200 opacity-80'}`}>
-                 {settlement.name}
-               </span>
-             </div>
-          </Marker>
-        ))}
+        {/* Render Settlements with Zoom Decluttering */}
+        {SETTLEMENTS.map(settlement => {
+          if (viewState.zoom < 6.5 && !settlement.isMajor) return null;
+          return (
+            <Marker key={settlement.id} longitude={settlement.coords[0]} latitude={settlement.coords[1]} anchor="center">
+               <div 
+                 className="flex items-center gap-1 group cursor-pointer hover:scale-110 transition-transform"
+                 onClick={(e) => {
+                   e.stopPropagation();
+                   setSelectedSettlement(settlement);
+                 }}
+               >
+                 <CircleDot className={`w-3 h-3 ${settlement.isMajor ? 'text-white fill-slate-800 scale-125' : 'text-slate-200 fill-slate-600'} drop-shadow`} />
+                 <span className={`text-[10px] font-bold drop-shadow-md whitespace-nowrap pl-0.5 ${settlement.isMajor ? 'text-white text-xs' : 'text-slate-200 opacity-80'}`}>
+                   {settlement.name}
+                 </span>
+               </div>
+            </Marker>
+          );
+        })}
 
+        {/* Reset View Button */}
+        <div className="absolute right-2 bottom-[140px] z-10 p-[1px] bg-white border border-slate-200 rounded shadow-[0_0_0_2px_rgba(0,0,0,0.1)]">
+          <button 
+             onClick={() => {
+                if (mapRef.current) {
+                   mapRef.current.flyTo({ center: [129.7, 62.0], zoom: 5, pitch: mapType === '3d' ? 60 : 0, essential: true });
+                }
+             }}
+             title="Сбросить масштаб (Всю Якутию)"
+             className="w-[29px] h-[29px] bg-white flex items-center justify-center hover:bg-slate-100 rounded-[2px]"
+          >
+             <Home className="w-5 h-5 text-slate-700" />
+          </button>
+        </div>
+        
         <NavigationControl position="bottom-right" showCompass={true} showZoom={true} />
 
         {selectedDistrict && (

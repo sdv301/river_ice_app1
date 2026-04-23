@@ -1,57 +1,60 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { format, min, max, differenceInDays, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus } from 'lucide-react';
+import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus, Search } from 'lucide-react';
 import type { IceObservation, IceJam, PickMode } from '../types';
 import * as XLSX from 'xlsx';
 import { SETTLEMENTS } from '../utils/riverData';
 
 import SettlementInfoPanel from './SettlementInfoPanel';
+import { useAppStore } from '../store/appStore';
+import { useIceStore } from '../store/iceStore';
+import { generateWaterLevelHistory } from '../utils/mockDataService';
 
-interface SidebarProps {
-  observations: IceObservation[];
-  currentDate: string;
-  setCurrentDate: (date: string) => void;
-  addObservation: (obs: Omit<IceObservation, 'id'>) => void;
-  jams: IceJam[];
-  addJam: (jam: Omit<IceJam, 'id' | 'status'>) => void;
-  resolveJam: (id: string) => void;
-  removeJam: (id: string) => void;
-  draftJamCoords: [number, number] | null;
-  setDraftJamCoords: (coords: [number, number] | null) => void;
-  isAdmin: boolean;
-  setIsAdmin: (val: boolean) => void;
-  pickMode: PickMode;
-  setPickMode: (mode: PickMode) => void;
-  draftUpper: [number, number] | null;
-  draftLower: [number, number] | null;
-  setDraftUpper: (coords: [number, number] | null) => void;
-  setDraftLower: (coords: [number, number] | null) => void;
-  sectionSpeeds: any[];
-  selectedSettlement: any | null;
-  setSelectedSettlement: (s: any | null) => void;
-}
+export default function Sidebar() {
+  const {
+    observations, currentDate, setCurrentDate, addObservation,
+    jams, addJam, resolveJam, removeJam, getSectionSpeeds,
+    draftJamCoords, setDraftJamCoords
+  } = useIceStore();
 
-export default function Sidebar({
-  observations, currentDate, setCurrentDate, addObservation,
-  jams, addJam, resolveJam, removeJam, draftJamCoords, setDraftJamCoords, isAdmin, setIsAdmin,
-  pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower, sectionSpeeds,
-  selectedSettlement, setSelectedSettlement
-}: SidebarProps) {
+  const {
+    isAdmin, setIsAdmin,
+    pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower,
+    selectedSettlement, setSelectedSettlement, setMapCenter
+  } = useAppStore();
+
+  const sectionSpeeds = getSectionSpeeds();
   const [isPlaying, setIsPlaying] = useState(false);
-  
+
   // Controls for adding observation
   const [showAddObs, setShowAddObs] = useState(false);
   const [newDate, setNewDate] = useState('');
   const [locName, setLocName] = useState('');
-  
+
   // Quick actual update mode
   const [showActualMode, setShowActualMode] = useState(false);
 
   // Controls for adding jam
   const [showAddJam, setShowAddJam] = useState(false);
-  const [jamSeverity, setJamSeverity] = useState<'low'|'medium'|'high'>('medium');
+  const [jamSeverity, setJamSeverity] = useState<'low' | 'medium' | 'high'>('medium');
   const [jamDesc, setJamDesc] = useState('');
+
+  // Pin logical state
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinValue, setPinValue] = useState('');
+
+  // Search local state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (searchQuery.trim().length > 1) {
+      setSearchResults(SETTLEMENTS.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase())));
+    } else {
+      setSearchResults([]);
+    }
+  }, [searchQuery]);
 
   useEffect(() => {
     if (draftJamCoords) {
@@ -63,7 +66,7 @@ export default function Sidebar({
   const minDate = observations.length > 0 ? min(observations.map(o => new Date(o.date))) : new Date();
   const maxDate = observations.length > 0 ? max(observations.map(o => new Date(o.date))) : new Date();
   const totalDays = differenceInDays(maxDate, minDate);
-  
+
   const currentDays = differenceInDays(new Date(currentDate), minDate);
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -75,38 +78,38 @@ export default function Sidebar({
   const handleAddSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draftUpper || !draftLower) return;
-    
+
     // Either manual date or "now" if it's the actual update
     const selectedDate = showActualMode ? new Date().toISOString() : new Date(newDate).toISOString();
-    
+
     addObservation({
       date: selectedDate,
       upperEdgeCoords: draftUpper,
       lowerEdgeCoords: draftLower,
       locationName: locName,
     });
-    
+
     setShowAddObs(false);
     setShowActualMode(false);
     setNewDate(''); setLocName('');
     setDraftUpper(null);
     setDraftLower(null);
     setPickMode('none');
-    
+
     setCurrentDate(selectedDate); // Jump to new state
   };
 
   const handleAddJamSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!draftJamCoords) return;
-    
+
     addJam({
       coords: draftJamCoords,
       dateAdded: new Date(currentDate).toISOString(),
       severity: jamSeverity,
       description: jamDesc,
     });
-    
+
     setShowAddJam(false);
     setJamDesc('');
     setJamSeverity('medium');
@@ -160,7 +163,7 @@ export default function Sidebar({
             imported++;
           }
         });
-        
+
         if (imported > 0) alert(`Успешно загружено ${imported} записей из Excel!`);
         else alert("Не найдено корректных записей. Проверьте структуру файла.");
 
@@ -178,36 +181,103 @@ export default function Sidebar({
       {/* Sliding Settlement Panel Overlay */}
       <div className={`absolute top-0 left-0 w-full h-full bg-white transition-transform duration-300 z-50 overflow-hidden flex flex-col ${selectedSettlement ? 'translate-x-0' : 'translate-x-full'}`}>
         {selectedSettlement && (
-          <SettlementInfoPanel 
-            settlement={selectedSettlement} 
-            onClose={() => setSelectedSettlement(null)} 
-            currentDate={currentDate} 
+          <SettlementInfoPanel
+            settlement={selectedSettlement}
+            onClose={() => setSelectedSettlement(null)}
+            currentDate={currentDate}
           />
         )}
       </div>
 
-      <div className="p-6 border-b border-slate-100 flex-shrink-0">
-        <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Ледоход</h1>
-        <p className="text-sm text-slate-500 mt-1">Мониторинг реки Лена, Якутия</p>
+      <div className="p-4 border-b border-slate-100 flex-shrink-0 bg-white z-20">
+        <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Ледоход РС(Я)</h1>
+        <p className="text-sm text-slate-500 mt-1">Мониторинг реки Лена</p>
+
+        {/* Search Bar */}
+        <div className="mt-4 relative">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <Search className="h-4 w-4 text-slate-400" />
+          </div>
+          <input
+            type="text"
+            className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg leading-5 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors"
+            placeholder="Найти населенный пункт..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+          {searchResults.length > 0 && (
+            <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+              {searchResults.map(result => (
+                <button
+                  key={result.id}
+                  className="w-full text-left px-4 py-2 text-sm text-slate-700 hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                  onClick={() => {
+                    setSelectedSettlement(result);
+                    setMapCenter(result.coords[0], result.coords[1], 10);
+                    setSearchQuery('');
+                    setSearchResults([]);
+                  }}
+                >
+                  <span className="font-medium">{result.name}</span>
+                  <span className="text-xs text-slate-400 ml-2">({result.distanceToMouth} км)</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="p-6 flex-1 overflow-y-auto">
         <div className="mb-4 flex items-center justify-between pb-4 border-b border-slate-100">
           <div className="flex items-center gap-2">
-             <ShieldUser className={`w-5 h-5 ${isAdmin ? 'text-purple-600' : 'text-slate-400'}`} />
-             <span className={`text-sm font-semibold ${isAdmin ? 'text-purple-700' : 'text-slate-500'}`}>Режим админа</span>
+            <ShieldUser className={`w-5 h-5 ${isAdmin ? 'text-purple-600' : 'text-slate-400'}`} />
+            <span className={`text-sm font-semibold ${isAdmin ? 'text-purple-700' : 'text-slate-500'}`}>Режим админа</span>
           </div>
-          <button 
-            onClick={() => setIsAdmin(!isAdmin)}
+          <button
+            onClick={() => {
+              if (isAdmin) setIsAdmin(false);
+              else setShowPinModal(true);
+            }}
             className={`w-11 h-6 rounded-full transition-colors relative ${isAdmin ? 'bg-purple-600' : 'bg-slate-300'}`}
           >
             <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isAdmin ? 'translate-x-5' : 'translate-x-0'}`}></span>
           </button>
         </div>
 
+        {/* PIN Modal Area */}
+        {showPinModal && !isAdmin && (
+          <div className="mb-4 p-4 bg-slate-50 border border-slate-200 rounded-xl relative animate-in fade-in zoom-in-95 duration-200">
+            <button onClick={() => setShowPinModal(false)} className="absolute top-2 right-2 text-slate-400 hover:text-slate-600 p-1"><X className="w-4 h-4" /></button>
+            <h3 className="text-xs font-bold uppercase text-slate-500 mb-3">Введите PIN (1234)</h3>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={pinValue}
+                autoFocus
+                onChange={(e) => setPinValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    if (pinValue === '1234') { setIsAdmin(true); setShowPinModal(false); setPinValue(''); }
+                    else { alert('Неверный PIN-код'); setPinValue(''); }
+                  }
+                }}
+                placeholder="PIN"
+                className="flex-1 text-sm border border-slate-300 rounded p-2 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              />
+              <button
+                onClick={() => {
+                  if (pinValue === '1234') { setIsAdmin(true); setShowPinModal(false); setPinValue(''); }
+                  else { alert('Неверный PIN-код'); setPinValue(''); }
+                }}
+                className="bg-purple-600 text-white px-3 text-sm font-medium rounded hover:bg-purple-700"
+              >Войти</button>
+            </div>
+          </div>
+        )}
+
         {isAdmin && (
           <div className="mb-6 space-y-2">
-            <button 
+            <button
               onClick={() => {
                 setShowActualMode(true);
                 setShowAddObs(true);
@@ -217,7 +287,7 @@ export default function Sidebar({
               <Crosshair className="w-4 h-4" />
               Загрузить актуальные данные
             </button>
-            <button 
+            <button
               onClick={() => {
                 fileInputRef.current?.click();
               }}
@@ -226,12 +296,12 @@ export default function Sidebar({
               <Upload className="w-4 h-4" />
               Импорт из Excel
             </button>
-            <input 
-              type="file" 
-              accept=".xlsx, .xls, .csv" 
-              className="hidden" 
-              ref={fileInputRef} 
-              onChange={handleExcelUpload} 
+            <input
+              type="file"
+              accept=".xlsx, .xls, .csv"
+              className="hidden"
+              ref={fileInputRef}
+              onChange={handleExcelUpload}
             />
             {showActualMode && (
               <p className="text-xs text-slate-500 mt-2 text-center">
@@ -252,11 +322,11 @@ export default function Sidebar({
             <div className="mt-1 text-xs text-slate-600">
               Расстояние до устья: <span className="font-bold">{selectedSettlement.distanceToMouth ? `${selectedSettlement.distanceToMouth} км` : 'Неизвестно'}</span>
             </div>
-            
+
             {(() => {
-              const hash = selectedSettlement.name.length + new Date(currentDate).getDate();
-              const currentLevel = 250 + (hash * 7 % 300);
-              const prevLevel = 250 + ((hash - 1) * 7 % 300);
+              const history = generateWaterLevelHistory(selectedSettlement.name, currentDate, 2);
+              const currentLevel = history[history.length - 1].level;
+              const prevLevel = history[history.length - 2].level;
               const diff = currentLevel - prevLevel;
               return (
                 <div className="mt-4 pt-3 border-t border-blue-100 grid grid-cols-2 gap-4">
@@ -264,7 +334,7 @@ export default function Sidebar({
                     <div className="text-[10px] uppercase font-bold text-blue-400">Уровень воды</div>
                     <div className="font-bold text-blue-700 text-xl">{currentLevel} <span className="text-xs font-normal">см</span></div>
                     <div className={`text-xs font-bold flex items-center gap-0.5 mt-0.5 ${diff > 0 ? 'text-red-500' : diff < 0 ? 'text-green-500' : 'text-slate-400'}`}>
-                      {diff > 0 ? <TrendingUp className="w-3 h-3"/> : diff < 0 ? <TrendingDown className="w-3 h-3"/> : <Minus className="w-3 h-3"/>}
+                      {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
                       {diff > 0 ? '+' : ''}{diff} см
                     </div>
                   </div>
@@ -280,23 +350,23 @@ export default function Sidebar({
 
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-             <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-               <Calendar className="w-4 h-4" />
-               Временная шкала
-             </h2>
-             <button 
-                onClick={() => setIsPlaying(!isPlaying)}
-                className={`p-2 rounded-full transition-colors ${isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-              >
-                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-             </button>
+            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+              <Calendar className="w-4 h-4" />
+              Временная шкала
+            </h2>
+            <button
+              onClick={() => setIsPlaying(!isPlaying)}
+              className={`p-2 rounded-full transition-colors ${isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+            >
+              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            </button>
           </div>
-          
+
           <div className="px-2">
-            <input 
-              type="range" 
-              min={0} 
-              max={totalDays || 1} 
+            <input
+              type="range"
+              min={0}
+              max={totalDays || 1}
               value={currentDays || 0}
               onChange={handleSliderChange}
               className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
@@ -305,7 +375,7 @@ export default function Sidebar({
           <div className="mt-3 text-center text-lg font-medium text-slate-800">
             {format(new Date(currentDate), 'dd MMMM yyyy', { locale: ru })}
           </div>
-          
+
           <div className="mt-6">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ледовые явления</h3>
             <div className="grid grid-cols-2 gap-y-2 gap-x-1 text-xs">
@@ -329,7 +399,7 @@ export default function Sidebar({
                 <span className="w-3 h-3 bg-slate-300 rounded-sm inline-block shadow-sm"></span>
                 <span className="text-slate-600">Подвижки</span>
               </div>
-               <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2">
                 <span className="w-3 h-3 bg-orange-200 rounded-sm inline-block shadow-sm"></span>
                 <span className="text-slate-600">Навалы льда</span>
               </div>
@@ -375,9 +445,9 @@ export default function Sidebar({
         <div className="mb-4">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-               <ShieldAlert className="w-4 h-4 text-orange-500" />
-               Заторы
-             </h2>
+              <ShieldAlert className="w-4 h-4 text-orange-500" />
+              Заторы
+            </h2>
           </div>
 
           {isAdmin && (
@@ -389,7 +459,7 @@ export default function Sidebar({
 
           {showAddJam && draftJamCoords && (
             <form onSubmit={handleAddJamSubmit} className="bg-orange-50 rounded-xl p-4 border border-orange-200 mb-6 space-y-4">
-               <div>
+              <div>
                 <label className="block text-xs font-medium text-orange-800 mb-1">Координаты</label>
                 <div className="text-xs text-orange-600 bg-orange-100 p-2 rounded">
                   {draftJamCoords[1].toFixed(4)}, {draftJamCoords[0].toFixed(4)}
@@ -403,7 +473,7 @@ export default function Sidebar({
                   <option value="high">Критичный (Угроза)</option>
                 </select>
               </div>
-               <div>
+              <div>
                 <label className="block text-xs font-medium text-orange-800 mb-1">Описание (опц.)</label>
                 <input type="text" value={jamDesc} onChange={e => setJamDesc(e.target.value)} placeholder="Причина или статус" className="w-full text-sm rounded bg-white border border-orange-200 p-2 focus:ring-2 focus:ring-orange-500" />
               </div>
@@ -411,13 +481,13 @@ export default function Sidebar({
                 <button type="submit" className="flex-1 bg-orange-600 text-white font-medium py-2 rounded shadow hover:bg-orange-700 transition">
                   Сохранить
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => {
                     setShowAddJam(false);
                     setPickMode('none');
                     setDraftJamCoords(null);
-                  }} 
+                  }}
                   className="px-3 bg-white border border-orange-200 text-orange-600 rounded hover:bg-orange-50 transition"
                 >
                   Отмена
@@ -439,7 +509,7 @@ export default function Sidebar({
                 </div>
                 {jam.description && <div className="text-xs text-slate-700">{jam.description}</div>}
                 <div className="text-[10px] text-slate-500 font-mono mt-1">lat: {jam.coords[1].toFixed(2)}, lng: {jam.coords[0].toFixed(2)}</div>
-                
+
                 {isAdmin && jam.status === 'active' && (
                   <div className="flex gap-2 mt-2 pt-2 border-t border-black/5">
                     <button onClick={() => resolveJam(jam.id)} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors flex items-center gap-1">
@@ -458,18 +528,18 @@ export default function Sidebar({
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-               <MapPin className="w-4 h-4" />
-               Точки наблюдений
-             </h2>
-             {isAdmin && (
-               <button 
-                  onClick={() => setShowAddObs(!showAddObs)}
-                  className="text-xs bg-slate-900 text-white px-3 py-1.5 rounded-md hover:bg-slate-800 transition-colors flex items-center gap-1 font-medium"
-               >
-                  <Plus className="w-3 h-3" />
-                  Добавить
-               </button>
-             )}
+              <MapPin className="w-4 h-4" />
+              Точки наблюдений
+            </h2>
+            {isAdmin && (
+              <button
+                onClick={() => setShowAddObs(!showAddObs)}
+                className="text-xs bg-slate-900 text-white px-3 py-1.5 rounded-md hover:bg-slate-800 transition-colors flex items-center gap-1 font-medium"
+              >
+                <Plus className="w-3 h-3" />
+                Добавить
+              </button>
+            )}
           </div>
 
           {showAddObs && isAdmin && (
@@ -479,7 +549,7 @@ export default function Sidebar({
                   Обновление статуса на <b>{format(new Date(), 'd MMMM, HH:mm', { locale: ru })}</b>
                 </div>
               )}
-              
+
               {!showActualMode && (
                 <div>
                   <label className="block text-xs font-medium text-slate-600 mb-1">Дата</label>
@@ -531,33 +601,33 @@ export default function Sidebar({
 
               <div className="space-y-3">
                 <div className="p-2 bg-white border border-slate-200 rounded-lg text-center">
-                   <button 
-                     type="button" 
-                     onClick={() => setPickMode(pickMode === 'upper' ? 'none' : 'upper')}
-                     className={`w-full py-1.5 text-xs rounded transition-colors ${pickMode === 'upper' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} font-medium`}
-                   >
-                     {draftUpper ? 'Уточнить верхнюю на карте' : 'Указать верхнюю на карте'}
-                   </button>
-                   {draftUpper && (
-                     <div className="mt-1.5 text-[10px] text-slate-500 font-mono">
-                        Lat: {draftUpper[1].toFixed(4)}, Lng: {draftUpper[0].toFixed(4)}
-                     </div>
-                   )}
+                  <button
+                    type="button"
+                    onClick={() => setPickMode(pickMode === 'upper' ? 'none' : 'upper')}
+                    className={`w-full py-1.5 text-xs rounded transition-colors ${pickMode === 'upper' ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} font-medium`}
+                  >
+                    {draftUpper ? 'Уточнить верхнюю на карте' : 'Указать верхнюю на карте'}
+                  </button>
+                  {draftUpper && (
+                    <div className="mt-1.5 text-[10px] text-slate-500 font-mono">
+                      Lat: {draftUpper[1].toFixed(4)}, Lng: {draftUpper[0].toFixed(4)}
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-2 bg-white border border-slate-200 rounded-lg text-center">
-                   <button 
-                     type="button" 
-                     onClick={() => setPickMode(pickMode === 'lower' ? 'none' : 'lower')}
-                     className={`w-full py-1.5 text-xs rounded transition-colors ${pickMode === 'lower' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} font-medium`}
-                   >
-                     {draftLower ? 'Уточнить нижнюю на карте' : 'Указать нижнюю на карте'}
-                   </button>
-                   {draftLower && (
-                     <div className="mt-1.5 text-[10px] text-slate-500 font-mono">
-                        Lat: {draftLower[1].toFixed(4)}, Lng: {draftLower[0].toFixed(4)}
-                     </div>
-                   )}
+                  <button
+                    type="button"
+                    onClick={() => setPickMode(pickMode === 'lower' ? 'none' : 'lower')}
+                    className={`w-full py-1.5 text-xs rounded transition-colors ${pickMode === 'lower' ? 'bg-slate-700 text-white' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'} font-medium`}
+                  >
+                    {draftLower ? 'Уточнить нижнюю на карте' : 'Указать нижнюю на карте'}
+                  </button>
+                  {draftLower && (
+                    <div className="mt-1.5 text-[10px] text-slate-500 font-mono">
+                      Lat: {draftLower[1].toFixed(4)}, Lng: {draftLower[0].toFixed(4)}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -583,15 +653,15 @@ export default function Sidebar({
                 <button type="submit" disabled={!draftUpper || !draftLower} className="flex-1 bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white font-medium py-2 rounded shadow hover:bg-blue-700 transition">
                   {showActualMode ? 'Опубликовать статус' : 'Сохранить данные'}
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => {
                     setShowAddObs(false);
                     setShowActualMode(false);
                     setPickMode('none');
                     setDraftUpper(null);
                     setDraftLower(null);
-                  }} 
+                  }}
                   className="px-3 bg-white border border-slate-200 text-slate-600 rounded hover:bg-slate-50"
                 >
                   Отмена
@@ -601,7 +671,7 @@ export default function Sidebar({
           )}
 
           <div className="space-y-3">
-            {observations.map((obs) => (
+            {observations.slice().reverse().map((obs) => (
               <div key={obs.id} className="p-3 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 transition cursor-pointer" onClick={() => setCurrentDate(obs.date)}>
                 <div className="font-semibold text-slate-800 text-sm">
                   {format(new Date(obs.date), 'd MMM yyyy', { locale: ru })}

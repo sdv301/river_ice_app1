@@ -2,32 +2,14 @@ import React, { useState } from 'react';
 import MapEditor from './components/MapEditor';
 import Sidebar from './components/Sidebar';
 import { useIceStore } from './store/iceStore';
+import { useAppStore } from './store/appStore';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import type { PickMode } from './types';
 
 export default function App() {
-  const {
-    observations,
-    addObservation,
-    currentDate,
-    setCurrentDate,
-    currentObservationData,
-    jams,
-    addJam,
-    resolveJam,
-    removeJam,
-    draftJamCoords,
-    setDraftJamCoords,
-    getDailySpeed
-  } = useIceStore();
-
-  const [isAdmin, setIsAdmin] = useState(false);
-  const [pickMode, setPickMode] = useState<PickMode>('none');
-  const [draftUpper, setDraftUpper] = useState<[number, number] | null>(null);
-  const [draftLower, setDraftLower] = useState<[number, number] | null>(null);
+  const { getDailySpeed } = useIceStore();
+  const { selectedSettlement } = useAppStore();
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [selectedSettlement, setSelectedSettlement] = useState<any | null>(null);
 
   const currentSpeed = getDailySpeed();
 
@@ -35,19 +17,7 @@ export default function App() {
     <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans relative">
       {/* Main Map Area */}
       <div className="flex-1 relative w-full h-full">
-        <MapEditor 
-          currentData={currentObservationData} 
-          jams={jams}
-          draftJamCoords={draftJamCoords}
-          setDraftJamCoords={setDraftJamCoords}
-          isAdmin={isAdmin}
-          pickMode={pickMode}
-          draftUpper={draftUpper}
-          draftLower={draftLower}
-          setDraftUpper={setDraftUpper}
-          setDraftLower={setDraftLower}
-          onSettlementClick={setSelectedSettlement}
-        />
+        <MapEditor />
         
         {/* Speed / Distance Indicator */}
         {currentSpeed !== null && (
@@ -83,29 +53,7 @@ export default function App() {
         </button>
 
         <div className="w-96 h-full z-40 relative">
-          <Sidebar 
-            observations={observations}
-            currentDate={currentDate}
-            setCurrentDate={setCurrentDate}
-            addObservation={addObservation}
-            jams={jams}
-            addJam={addJam}
-            resolveJam={resolveJam}
-            removeJam={removeJam}
-            draftJamCoords={draftJamCoords}
-            setDraftJamCoords={setDraftJamCoords}
-            isAdmin={isAdmin}
-            setIsAdmin={setIsAdmin}
-            pickMode={pickMode}
-            setPickMode={setPickMode}
-            draftUpper={draftUpper}
-            draftLower={draftLower}
-            setDraftUpper={setDraftUpper}
-            setDraftLower={setDraftLower}
-            sectionSpeeds={useIceStore().getSectionSpeeds()}
-            selectedSettlement={selectedSettlement}
-            setSelectedSettlement={setSelectedSettlement}
-          />
+          <Sidebar />
         </div>
       </div>
     </div>

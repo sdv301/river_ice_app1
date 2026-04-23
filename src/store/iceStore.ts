@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { create } from 'zustand';
 import type { IceObservation, IceJam } from '../types';
 import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/mapUtils';
 
@@ -53,73 +53,92 @@ const INITIAL_DATA: IceObservation[] = [
   }
 ];
 
-export function useIceStore() {
-  const [observations, setObservations] = useState<IceObservation[]>(
-    INITIAL_DATA.map(obs => ({
-      ...obs,
-      upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
-      lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
-    }))
-  );
-  
-  // Use snapped for current date default
-  const [currentDate, setCurrentDate] = useState<string>(INITIAL_DATA[0].date);
-  const [jams, setJams] = useState<IceJam[]>([]);
-  const [draftJamCoords, setDraftJamCoords] = useState<[number, number] | null>(null);
+interface IceStore {
+  observations: IceObservation[];
+  currentDate: string;
+  jams: IceJam[];
+  draftJamCoords: [number, number] | null;
+  setCurrentDate: (date: string) => void;
+  setDraftJamCoords: (coords: [number, number] | null) => void;
+  addObservation: (obs: Omit<IceObservation, 'id'>) => void;
+  addJam: (jam: Omit<IceJam, 'id' | 'status'>) => void;
+  resolveJam: (id: string) => void;
+  removeJam: (id: string) => void;
+  getCurrentObservationData: () => any;
+  getDailySpeed: () => any;
+  getSectionSpeeds: () => any[];
+}
 
-  const addObservation = useCallback((obs: Omit<IceObservation, 'id'>) => {
+export const useIceStore = create<IceStore>((set, get) => ({
+  observations: INITIAL_DATA.map(obs => ({
+    ...obs,
+    upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+    lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+  })),
+  currentDate: INITIAL_DATA[0].date,
+  jams: [],
+  draftJamCoords: null,
+
+  setCurrentDate: (date: string) => set({ currentDate: date }),
+  
+  setDraftJamCoords: (coords) => set({ draftJamCoords: coords }),
+
+  addObservation: (obs) => set((state) => {
     const newObs = {
       ...obs,
       id: Math.random().toString(36).substr(2, 9),
       upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
       lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
     };
-    setObservations((prev) => [...prev, newObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
-  }, []);
+    return {
+      observations: [...state.observations, newObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+    };
+  }),
 
-  const addJam = useCallback((jam: Omit<IceJam, 'id' | 'status'>) => {
+  addJam: (jam) => set((state) => {
     const newJam: IceJam = {
       ...jam,
       id: Math.random().toString(36).substr(2, 9),
       status: 'active',
       coords: snapToRiver(jam.coords),
     };
-    setJams((prev) => [...prev, newJam]);
-    setDraftJamCoords(null);
-  }, []);
+    return {
+      jams: [...state.jams, newJam],
+      draftJamCoords: null
+    };
+  }),
 
-  const resolveJam = useCallback((id: string) => {
-    setJams(prev => prev.map(j => j.id === id ? { ...j, status: 'cleared' } : j));
-  }, []);
+  resolveJam: (id) => set((state) => ({
+    jams: state.jams.map(j => j.id === id ? { ...j, status: 'cleared' } : j)
+  })),
 
-  const removeJam = useCallback((id: string) => {
-    setJams(prev => prev.filter(j => j.id !== id));
-  }, []);
+  removeJam: (id) => set((state) => ({
+    jams: state.jams.filter(j => j.id !== id)
+  })),
 
-  const sortedObservations = useMemo(() => {
-    return [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [observations]);
-
-  // Find the exact observation or interpolate between observations closest to currentDate
-  const currentObservationData = useMemo(() => {
-    if (sortedObservations.length === 0) return null;
+  getCurrentObservationData() {
+    const { observations, currentDate } = get();
+    if (observations.length === 0) return null;
+    
+    // Sort array just in case
+    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     
     const targetTime = new Date(currentDate).getTime();
     
     // Find before and after
-    let before = sortedObservations[0];
-    let after = sortedObservations[sortedObservations.length - 1];
+    let before = sorted[0];
+    let after = sorted[sorted.length - 1];
 
     if (targetTime <= new Date(before.date).getTime()) return { ...before, exact: true };
     if (targetTime >= new Date(after.date).getTime()) return { ...after, exact: true };
 
-    for (let i = 0; i < sortedObservations.length - 1; i++) {
-        const time1 = new Date(sortedObservations[i].date).getTime();
-        const time2 = new Date(sortedObservations[i+1].date).getTime();
+    for (let i = 0; i < sorted.length - 1; i++) {
+        const time1 = new Date(sorted[i].date).getTime();
+        const time2 = new Date(sorted[i+1].date).getTime();
         
         if (targetTime >= time1 && targetTime <= time2) {
-            before = sortedObservations[i];
-            after = sortedObservations[i+1];
+            before = sorted[i];
+            after = sorted[i+1];
             break;
         }
     }
@@ -136,27 +155,28 @@ export function useIceStore() {
         lowerEdgeCoords: interpolateAlongRiver(before.lowerEdgeCoords, after.lowerEdgeCoords, progress),
         exact: false,
     };
+  },
 
-  }, [sortedObservations, currentDate]);
-
-  const getDailySpeed = useCallback(() => {
-    if (sortedObservations.length < 2) return null;
+  getDailySpeed() {
+    const { observations, currentDate } = get();
+    if (observations.length < 2) return null;
+    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const targetTime = new Date(currentDate).getTime();
 
-    let before = sortedObservations[0];
-    let after = sortedObservations[sortedObservations.length - 1];
+    let before = sorted[0];
+    let after = sorted[sorted.length - 1];
 
     if (targetTime <= new Date(before.date).getTime()) {
-      after = sortedObservations[1];
+      after = sorted[1];
     } else if (targetTime >= new Date(after.date).getTime()) {
-      before = sortedObservations[sortedObservations.length - 2];
+      before = sorted[sorted.length - 2];
     } else {
-      for (let i = 0; i < sortedObservations.length - 1; i++) {
-          const time1 = new Date(sortedObservations[i].date).getTime();
-          const time2 = new Date(sortedObservations[i+1].date).getTime();
+      for (let i = 0; i < sorted.length - 1; i++) {
+          const time1 = new Date(sorted[i].date).getTime();
+          const time2 = new Date(sorted[i+1].date).getTime();
           if (targetTime >= time1 && targetTime <= time2) {
-              before = sortedObservations[i];
-              after = sortedObservations[i+1];
+              before = sorted[i];
+              after = sorted[i+1];
               break;
           }
       }
@@ -173,15 +193,17 @@ export function useIceStore() {
       startLoc: before.locationName || 'Неизвестно',
       endLoc: after.locationName || 'Неизвестно'
     };
-  }, [sortedObservations, currentDate]);
+  },
 
-  const getSectionSpeeds = useCallback(() => {
-    if (sortedObservations.length < 2) return [];
+  getSectionSpeeds() {
+    const { observations } = get();
+    if (observations.length < 2) return [];
     
+    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const speeds = [];
-    for (let i = 0; i < sortedObservations.length - 1; i++) {
-      const obs1 = sortedObservations[i];
-      const obs2 = sortedObservations[i+1];
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const obs1 = sorted[i];
+      const obs2 = sorted[i+1];
       
       const t1 = new Date(obs1.date).getTime();
       const t2 = new Date(obs2.date).getTime();
@@ -198,23 +220,6 @@ export function useIceStore() {
         });
       }
     }
-    // Return sorted by date (latest first) or just chronological
     return speeds.reverse();
-  }, [sortedObservations]);
-
-  return {
-    observations: sortedObservations,
-    addObservation,
-    currentDate,
-    setCurrentDate,
-    currentObservationData,
-    jams,
-    addJam,
-    resolveJam,
-    removeJam,
-    draftJamCoords,
-    setDraftJamCoords,
-    getDailySpeed,
-    getSectionSpeeds
-  };
-}
+  }
+}));
