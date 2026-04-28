@@ -3,6 +3,7 @@ import Map, { Source, Layer, Marker, NavigationControl, Popup, useMap } from '@v
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource } from '../utils/mapUtils';
 import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home } from 'lucide-react';
+import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
 import { SETTLEMENTS } from '../utils/riverData';
 import { useAppStore } from '../store/appStore';
@@ -33,6 +34,52 @@ const MAP_STYLES: Record<string, any> = {
   'basin': '/frexosm_basin_style.json'
 };
 
+// Memoized Marker Components for performance
+const StationMarker = React.memo(({ stn, level, onSelect }: { stn: any, level: number, onSelect: (stn: any) => void }) => {
+  let colorClass = 'bg-green-500';
+  let textClass = 'text-green-800';
+  let borderClass = 'border-green-600';
+  
+  if (stn.criticalLevel) {
+     const diff = stn.criticalLevel - level;
+     if (diff < 0) { colorClass = 'bg-red-600'; textClass = 'text-white'; borderClass = 'border-red-800'; }
+     else if (diff < 100) { colorClass = 'bg-orange-500'; textClass = 'text-white'; borderClass = 'border-orange-700'; }
+     else if (diff < 300) { colorClass = 'bg-yellow-400'; textClass = 'text-yellow-900'; borderClass = 'border-yellow-600'; }
+  }
+
+  return (
+    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="bottom-left">
+      <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 cursor-pointer hover:opacity-100 hover:scale-110 transition-transform`}
+           onClick={(e) => {
+             e.stopPropagation();
+             onSelect(stn);
+           }}
+      >
+        {level} см
+      </div>
+    </Marker>
+  );
+});
+
+const SettlementMarker = React.memo(({ settlement, onSelect }: { settlement: any, onSelect: (s: any) => void }) => {
+  return (
+    <Marker longitude={settlement.coords[0]} latitude={settlement.coords[1]} anchor="center">
+       <div 
+         className="flex items-center gap-1 group cursor-pointer hover:scale-110 transition-transform"
+         onClick={(e) => {
+           e.stopPropagation();
+           onSelect(settlement);
+         }}
+       >
+         <CircleDot className={`w-3 h-3 ${settlement.isMajor ? 'text-white fill-slate-800 scale-125' : 'text-slate-200 fill-slate-600'} drop-shadow`} />
+         <span className={`font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-nowrap px-1 rounded-sm backdrop-blur-[2px] ${settlement.isMajor ? 'text-white bg-slate-900/60 text-xs tracking-wide' : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'}`}>
+           {settlement.name}
+         </span>
+       </div>
+    </Marker>
+  );
+});
+
 export default function MapEditor() {
   const { getCurrentObservationData, jams, draftJamCoords, setDraftJamCoords, getSectionSpeeds } = useIceStore();
   const currentData = getCurrentObservationData();
@@ -54,6 +101,30 @@ export default function MapEditor() {
   const [mapType, setMapType] = useState<MapType>('satellite');
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
+  const [mapBounds, setMapBounds] = useState<[number, number, number, number] | null>(null);
+
+  const updateBounds = () => {
+    if (!mapRef.current) return;
+    const map = mapRef.current.getMap();
+    const bounds = map.getBounds();
+    setMapBounds([
+      bounds.getWest(),
+      bounds.getSouth(),
+      bounds.getEast(),
+      bounds.getNorth()
+    ]);
+  };
+
+  useEffect(() => {
+    // Initial bounds after map is ready
+    const timer = setTimeout(updateBounds, 1000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  const onMoveEnd = (evt: any) => {
+    setViewState(evt.viewState);
+    updateBounds();
+  };
 
   useEffect(() => {
     setViewState(prev => ({ ...prev, pitch: 0 }));
@@ -66,6 +137,12 @@ export default function MapEditor() {
     );
     return generateGeoJSONSource(segments);
   }, [currentData]);
+
+  useEffect(() => {
+    return () => {
+      if (mouseMoveTimer.current) window.clearTimeout(mouseMoveTimer.current);
+    };
+  }, []);
 
   const onMapClick = async (e: any) => {
     if (pickMode === 'jam') {
@@ -111,7 +188,15 @@ export default function MapEditor() {
 
   const [hoverInfo, setHoverInfo] = useState<{x: number, y: number, feature: any} | null>(null);
 
+  const mouseMoveTimer = useRef<number | null>(null);
   const onMouseMove = (e: any) => {
+    if (mouseMoveTimer.current) return;
+    
+    // Simple throttle
+    mouseMoveTimer.current = window.setTimeout(() => {
+      mouseMoveTimer.current = null;
+    }, 16); // ~60fps cap for state updates
+
     if (e.features && e.features.length > 0) {
       setHoverInfo({ x: e.point.x, y: e.point.y, feature: e.features[0] });
     } else {
@@ -125,38 +210,45 @@ export default function MapEditor() {
     <div className="w-full h-full relative group">
       {/* Map Type Switcher */}
       <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-1.5 flex gap-1 border border-slate-200">
-        <button
-          onClick={() => setMapType('satellite')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'satellite' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-        >
-          Спутник
-        </button>
+        <Tooltip text="Спутниковые снимки ESRI" position="bottom">
+          <button
+            onClick={() => setMapType('satellite')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'satellite' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            Спутник
+          </button>
+        </Tooltip>
 
-        <button
-          onClick={() => setMapType('vector')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'vector' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-        >
-          Вектор
-        </button>
-        <button
-          onClick={() => setMapType('basin')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'basin' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
-        >
-          Бассейны
-        </button>
-        <button
-          onClick={() => setMapType('local')}
-          className={`px-3 py-1.5 text-xs font-semibold rounded flex items-center gap-1 ${mapType === 'local' ? 'bg-slate-800 text-white shadow-inner' : 'text-slate-600 hover:bg-slate-100'}`}
-          title="Схема без загрузки данных из интернета"
-        >
-          <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div> Офлайн
-        </button>
+        <Tooltip text="Векторная карта OpenStreetMap" position="bottom">
+          <button
+            onClick={() => setMapType('vector')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'vector' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            Вектор
+          </button>
+        </Tooltip>
+        <Tooltip text="Карта речных бассейнов" position="bottom">
+          <button
+            onClick={() => setMapType('basin')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'basin' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            Бассейны
+          </button>
+        </Tooltip>
+        <Tooltip text="Схема без загрузки данных из интернета (работает офлайн)" position="bottom">
+          <button
+            onClick={() => setMapType('local')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded flex items-center gap-1 ${mapType === 'local' ? 'bg-slate-800 text-white shadow-inner' : 'text-slate-600 hover:bg-slate-100'}`}
+          >
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div> Офлайн
+          </button>
+        </Tooltip>
       </div>
 
       <Map
         ref={mapRef}
         initialViewState={viewState}
-        onMoveEnd={evt => setViewState(evt.viewState)}
+        onMoveEnd={onMoveEnd}
         mapStyle={MAP_STYLES[mapType]}
         interactiveLayerIds={['river-line', 'yakutia-district-fill']}
         cursor={cursorType}
@@ -318,79 +410,63 @@ export default function MapEditor() {
           );
         })}
 
-        {/* Water Level Stations (with realistic data) */}
-        {stations.filter(stn => stn.coords).map(stn => {
-           if (viewState.zoom < 7) return null;
-           
+        {/* Water Level Stations (with Viewport Filtering) */}
+        {stations.filter(stn => {
+           if (!stn.coords || viewState.zoom < 7.2) return false;
+           if (!mapBounds) return true;
+           const [lng, lat] = stn.coords;
+           return lng >= mapBounds[0] && lat >= mapBounds[1] && lng <= mapBounds[2] && lat <= mapBounds[3];
+        }).map(stn => {
            const dateStr = currentData?.date ? currentData.date.substring(0, 10) : new Date().toISOString().substring(0, 10);
            const level = Object.keys(stn.levels).length > 0 ? (stn.levels[dateStr] ?? Object.values(stn.levels).pop()) : null;
            if (level === null) return null;
 
-           let colorClass = 'bg-green-500';
-           let textClass = 'text-green-800';
-           let borderClass = 'border-green-600';
-           
-           if (stn.criticalLevel) {
-              const diff = stn.criticalLevel - level;
-              if (diff < 0) { colorClass = 'bg-red-600'; textClass = 'text-white'; borderClass = 'border-red-800'; }
-              else if (diff < 100) { colorClass = 'bg-orange-500'; textClass = 'text-white'; borderClass = 'border-orange-700'; }
-              else if (diff < 300) { colorClass = 'bg-yellow-400'; textClass = 'text-yellow-900'; borderClass = 'border-yellow-600'; }
-           }
-
            return (
-             <Marker key={stn.id} longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="bottom-left">
-               <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 cursor-pointer hover:opacity-100 hover:scale-110 transition-transform`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const existingSettlement = SETTLEMENTS.find(s => s.name === stn.name) || {
-                        id: stn.id, name: stn.name, coords: stn.coords
-                      };
-                      setSelectedSettlement(existingSettlement);
-                    }}
-               >
-                 {level} см
-               </div>
-             </Marker>
+             <StationMarker 
+               key={stn.id} 
+               stn={stn} 
+               level={level} 
+               onSelect={(s) => {
+                  const existingSettlement = SETTLEMENTS.find(settle => settle.name === s.name) || {
+                    id: s.id, name: s.name, coords: s.coords
+                  };
+                  setSelectedSettlement(existingSettlement);
+               }} 
+             />
            );
         })}
 
-        {/* Render Settlements with Zoom Decluttering */}
-        {SETTLEMENTS.map(settlement => {
-          if (viewState.zoom < 6.5 && !settlement.isMajor) return null;
-          return (
-            <Marker key={settlement.id} longitude={settlement.coords[0]} latitude={settlement.coords[1]} anchor="center">
-               <div 
-                 className="flex items-center gap-1 group cursor-pointer hover:scale-110 transition-transform"
-                 onClick={(e) => {
-                   e.stopPropagation();
-                   setSelectedSettlement(settlement);
-                 }}
-               >
-                 <CircleDot className={`w-3 h-3 ${settlement.isMajor ? 'text-white fill-slate-800 scale-125' : 'text-slate-200 fill-slate-600'} drop-shadow`} />
-                 <span className={`font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-nowrap px-1 rounded-sm backdrop-blur-[2px] ${settlement.isMajor ? 'text-white bg-slate-900/60 text-xs tracking-wide' : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'}`}>
-                   {settlement.name}
-                 </span>
-               </div>
-            </Marker>
-          );
-        })}
+        {/* Render Settlements (with Viewport Filtering) */}
+        {SETTLEMENTS.filter(s => {
+           if (viewState.zoom < 6.8 && !s.isMajor) return false;
+           if (!mapBounds) return true;
+           const [lng, lat] = s.coords;
+           return lng >= mapBounds[0] && lat >= mapBounds[1] && lng <= mapBounds[2] && lat <= mapBounds[3];
+        }).map(settlement => (
+          <SettlementMarker 
+            key={settlement.id} 
+            settlement={settlement} 
+            onSelect={setSelectedSettlement} 
+          />
+        ))}
 
         {/* Reset View Button */}
         <div 
           className="absolute bottom-[140px] z-10 p-[1px] bg-white border border-slate-200 rounded shadow-[0_0_0_2px_rgba(0,0,0,0.1)] transition-transform duration-300"
           style={{ transform: `translateX(${isSidebarOpen ? '-384px' : '0'})`, right: '8px' }}
         >
-          <button 
-             onClick={() => {
-                if (mapRef.current) {
-                   mapRef.current.flyTo({ center: [129.7, 62.0], zoom: 5, pitch: 0, essential: true });
-                }
-             }}
-             title="Сбросить масштаб (Всю Якутию)"
-             className="w-[29px] h-[29px] bg-white flex items-center justify-center hover:bg-slate-100 rounded-[2px]"
-          >
-             <Home className="w-5 h-5 text-slate-700" />
-          </button>
+          <Tooltip text="Сбросить масштаб и показать всю Якутию" position="left">
+            <button 
+               onClick={() => {
+                  if (mapRef.current) {
+                     mapRef.current.flyTo({ center: [129.7, 62.0], zoom: 5, pitch: 0, essential: true });
+                  }
+               }}
+               className="w-[29px] h-[29px] bg-white flex items-center justify-center hover:bg-slate-100 rounded-[2px]"
+            >
+               <Home className="w-5 h-5 text-slate-700" />
+            </button>
+          </Tooltip>
         </div>
         
         <NavigationControl position="bottom-right" showCompass={true} showZoom={true} />

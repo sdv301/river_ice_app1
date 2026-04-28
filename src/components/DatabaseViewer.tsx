@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Search, AlertCircle, Droplets, ArrowDown, ArrowUp, Upload } from 'lucide-react';
+import { X, Search, AlertCircle, Droplets, ArrowDown, ArrowUp, Upload, Download } from 'lucide-react';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import { parseExcelData } from '../utils/excelParser';
+import { downloadWaterLevelTemplate } from '../utils/excelTemplates';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useAppStore } from '../store/appStore';
 import { SETTLEMENTS } from '../utils/riverData';
+import Tooltip from './Tooltip';
 
 export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { isOpen: boolean, onClose: () => void, isPage?: boolean }) {
   const { stations } = useWaterLevelStore();
@@ -117,26 +119,41 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Year selector integrated directly */}
-          <select 
-             value={selectedDbYear} 
-             onChange={(e) => setSelectedDbYear(Number(e.target.value))}
-             className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer shadow-sm transition-all"
-          >
-             <option value={2026}>2026 год</option>
-             <option value={2025}>2025 год</option>
-          </select>
+          <Tooltip text="Выберите год для просмотра данных" position="bottom">
+            <select 
+               value={selectedDbYear} 
+               onChange={(e) => setSelectedDbYear(Number(e.target.value))}
+               className="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-700 font-medium hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer shadow-sm transition-all"
+            >
+               <option value={2026}>2026 год</option>
+               <option value={2025}>2025 год</option>
+            </select>
+          </Tooltip>
 
-          <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
-            <Upload className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Импорт Excel</span>
-            <input type="file" accept=".xls,.xlsx" className="hidden" title="Drop file here" onChange={handleFileUpload}/>
-          </label>
+          <Tooltip text="Загрузить данные уровней воды из Excel-файла" position="bottom">
+            <label className="flex items-center gap-1.5 cursor-pointer px-3 py-1.5 bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition-colors shadow-sm">
+              <Upload className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Импорт Excel</span>
+              <input type="file" accept=".xls,.xlsx" className="hidden" title="Drop file here" onChange={handleFileUpload}/>
+            </label>
+          </Tooltip>
+
+          <Tooltip text="Скачать Excel-шаблон с примером заполнения данных уровней воды" position="bottom">
+            <button
+              onClick={downloadWaterLevelTemplate}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-semibold rounded-lg hover:bg-emerald-100 transition-colors shadow-sm"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Шаблон</span>
+            </button>
+          </Tooltip>
 
           {!isPage && (
-            <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
+            <Tooltip text="Закрыть окно базы данных" position="left">
+              <button onClick={onClose} className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -155,24 +172,30 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
           />
         </div>
         <div className="flex items-center bg-slate-50 rounded-lg border border-slate-200 p-1 flex-wrap gap-1">
-          <button 
-            onClick={() => { setSortField('name'); setSortAsc(!sortAsc); }}
-            className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors ${sortField === 'name' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
-          >
-            Название {sortField === 'name' && (sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-          </button>
-          <button 
-            onClick={() => { setSortField('level'); setSortAsc(!sortAsc); }}
-            className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors ${sortField === 'level' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
-          >
-            Уровень {sortField === 'level' && (sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-          </button>
-          <button 
-            onClick={() => { setSortField('diff'); setSortAsc(!sortAsc); }}
-            className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors ${sortField === 'diff' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
-          >
-            Опасность {sortField === 'diff' && (sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-          </button>
+          <Tooltip text="Сортировать по названию гидропоста" position="bottom">
+            <button 
+              onClick={() => { setSortField('name'); setSortAsc(!sortAsc); }}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors ${sortField === 'name' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              Название {sortField === 'name' && (sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+            </button>
+          </Tooltip>
+          <Tooltip text="Сортировать по текущему уровню воды" position="bottom">
+            <button 
+              onClick={() => { setSortField('level'); setSortAsc(!sortAsc); }}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors ${sortField === 'level' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              Уровень {sortField === 'level' && (sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+            </button>
+          </Tooltip>
+          <Tooltip text="Сортировать по степени опасности (расстояние до критического уровня)" position="bottom">
+            <button 
+              onClick={() => { setSortField('diff'); setSortAsc(!sortAsc); }}
+              className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1 transition-colors ${sortField === 'diff' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-500 hover:bg-slate-100'}`}
+            >
+              Опасность {sortField === 'diff' && (sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+            </button>
+          </Tooltip>
         </div>
       </div>
 
@@ -268,12 +291,14 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
              ) : (
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                  {docsList.filter(d => d.year === selectedDbYear).map((doc, idx) => (
-                   <a key={idx} href={doc.url} download={doc.name + '.docx'} className="flex items-start gap-3 p-3 border border-slate-200 rounded-lg hover:border-blue-400 hover:shadow-sm cursor-pointer transition-all bg-slate-50/50 hover:bg-white group">
-                     <div className="flex-shrink-0 mt-1"><svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg></div>
-                     <div className="flex-1 min-w-0">
-                       <div className="text-sm font-semibold text-slate-800 break-words leading-tight flex flex-col">{doc.name}</div>
-                     </div>
-                   </a>
+                   <Tooltip key={idx} text="Нажмите для скачивания пояснительной записки (.docx)" position="top" className="w-full">
+                    <a href={doc.url} download={doc.name + '.docx'} className="flex items-start gap-3 p-3 border border-slate-200 rounded-lg hover:border-blue-400 hover:shadow-sm cursor-pointer transition-all bg-slate-50/50 hover:bg-white group w-full">
+                      <div className="flex-shrink-0 mt-1"><svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 4a2 2 0 012-2h4.586A2 2 0 0112 2.586L15.414 6A2 2 0 0116 7.414V16a2 2 0 01-2 2H6a2 2 0 01-2-2V4zm2 6a1 1 0 011-1h6a1 1 0 110 2H7a1 1 0 01-1-1zm1 3a1 1 0 100 2h6a1 1 0 100-2H7z" clipRule="evenodd" /></svg></div>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-slate-800 break-words leading-tight flex flex-col">{doc.name}</div>
+                      </div>
+                    </a>
+                   </Tooltip>
                  ))}
                </div>
              )}

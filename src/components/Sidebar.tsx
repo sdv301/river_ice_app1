@@ -1,17 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { format, min, max, differenceInDays, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus, Search, Snowflake, Database } from 'lucide-react';
+import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus, Search, Snowflake, Database, Download, HelpCircle } from 'lucide-react';
 import type { IceObservation, IceJam, PickMode } from '../types';
 import * as XLSX from 'xlsx';
 import { SETTLEMENTS } from '../utils/riverData';
 
 import SettlementInfoPanel from './SettlementInfoPanel';
+import Tooltip from './Tooltip';
 import { useAppStore } from '../store/appStore';
 import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
+import { downloadIceObservationTemplate } from '../utils/excelTemplates';
 
 export default function Sidebar() {
   const {
@@ -23,7 +25,8 @@ export default function Sidebar() {
   const {
     isAdmin, setIsAdmin,
     pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower,
-    selectedSettlement, setSelectedSettlement, setMapCenter, selectedYear, setSelectedYear
+    selectedSettlement, setSelectedSettlement, setMapCenter, selectedYear, setSelectedYear,
+    setIsHelpOpen
   } = useAppStore();
 
   const { getStationHistory, getStation } = useWaterLevelStore();
@@ -182,86 +185,96 @@ export default function Sidebar() {
 
   return (
     <div className="w-96 bg-white border-l border-slate-200 h-full flex flex-col shadow-xl z-10 relative overflow-hidden">
-      {/* Sliding Settlement Panel Overlay */}
-      <div className={`absolute top-0 left-0 w-full h-full bg-white transition-transform duration-300 z-50 overflow-hidden flex flex-col ${selectedSettlement ? 'translate-x-0' : 'translate-x-full'}`}>
-        {selectedSettlement && (
-          <SettlementInfoPanel
-            settlement={selectedSettlement}
-            onClose={() => setSelectedSettlement(null)}
-            currentDate={currentDate}
-          />
-        )}
-      </div>
-
       <div className="p-5 border-b border-slate-100 flex-shrink-0 bg-white z-20">
-        <div className="flex items-center gap-4 mb-4">
-          <div className="w-10 h-10 bg-blue-600 rounded-xl shadow-inner shadow-blue-400 flex items-center justify-center shrink-0">
-            <Snowflake className="w-5 h-5 text-white" />
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-blue-600 rounded-xl shadow-inner shadow-blue-400 flex items-center justify-center shrink-0">
+              <Snowflake className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent leading-tight">
+                Ледоход Якутии
+              </h1>
+              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
+                Система мониторинга
+              </p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent leading-tight">
-              Ледоход Якутии
-            </h1>
-            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
-              Система мониторинга
-            </p>
-          </div>
+          
+          <Tooltip text="Инструкция по использованию сайта" position="left">
+            <button 
+              onClick={() => setIsHelpOpen(true)}
+              className="p-2 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-full transition-all"
+            >
+              <HelpCircle className="w-6 h-6" />
+            </button>
+          </Tooltip>
         </div>
 
         {/* Database Link Section */}
         <div className="mb-4">
-          <a
-            href="/database.html"
-            target="_blank"
-            className="w-full bg-slate-50 hover:bg-blue-50 text-blue-700 border border-blue-100 font-bold py-2.5 px-4 rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all group"
-          >
-            <Database className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span className="text-sm">Архив: База данных 2025</span>
-          </a>
+          <Tooltip text="Открыть полную базу данных гидропостов в отдельной вкладке" position="bottom" className="w-full">
+            <a
+              href="/database.html"
+              target="_blank"
+              className="w-full bg-slate-50 hover:bg-blue-50 text-blue-700 border border-blue-100 font-bold py-2.5 px-4 rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all group"
+            >
+              <Database className="w-4 h-4 group-hover:scale-110 transition-transform" />
+              <span className="text-sm">Архив: База данных 2025</span>
+            </a>
+          </Tooltip>
         </div>
 
         {/* Year Switcher within Sidebar */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 mb-4">
-          <button
-            onClick={() => {
-              setSelectedYear(2025);
-              setCurrentDate('2025-05-15T12:00:00Z');
-            }}
-            className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
-              selectedYear === 2025 
-                ? 'bg-white text-blue-700 shadow-sm' 
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            2025 (Архив)
-          </button>
-          <button
-            onClick={() => {
-              setSelectedYear(2026);
-              setCurrentDate('2026-05-01T12:00:00Z');
-            }}
-            className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
-              selectedYear === 2026 
-                ? 'bg-white text-blue-700 shadow-sm' 
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            2026 (Текущий)
-          </button>
+          <Tooltip text="Просмотр архивных данных за 2025 год" position="bottom" className="flex-1">
+            <button
+              onClick={() => {
+                setSelectedYear(2025);
+                setCurrentDate('2025-05-15T12:00:00Z');
+              }}
+              className={`w-full py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                selectedYear === 2025 
+                  ? 'bg-white text-blue-700 shadow-sm' 
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              2025 (Архив)
+            </button>
+          </Tooltip>
+          <Tooltip text="Данные текущего года в реальном времени" position="bottom" className="flex-1">
+            <button
+              onClick={() => {
+                setSelectedYear(2026);
+                setCurrentDate('2026-05-01T12:00:00Z');
+              }}
+              className={`w-full py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+                selectedYear === 2026 
+                  ? 'bg-white text-blue-700 shadow-sm' 
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              2026 (Текущий)
+            </button>
+          </Tooltip>
         </div>
 
         {/* Search Bar */}
         <div className="relative">
-          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-            <Search className="h-4 w-4 text-slate-400" />
-          </div>
-          <input
-            type="text"
-            className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg leading-5 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors"
-            placeholder="Поиск населенного пункта..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+          <Tooltip text="Введите название населенного пункта для поиска на карте" position="bottom" className="w-full">
+            <div className="relative w-full">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search className="h-4 w-4 text-slate-400" />
+              </div>
+              <input
+                type="text"
+                className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg leading-5 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors"
+                placeholder="Поиск населенного пункта..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+              />
+            </div>
+          </Tooltip>
           {searchResults.length > 0 && (
             <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
               {searchResults.map(result => (
@@ -286,19 +299,23 @@ export default function Sidebar() {
 
       <div className="p-6 flex-1 overflow-y-auto">
         <div className="mb-4 flex items-center justify-between pb-4 border-b border-slate-100">
-          <div className="flex items-center gap-2">
-            <ShieldUser className={`w-5 h-5 ${isAdmin ? 'text-purple-600' : 'text-slate-400'}`} />
-            <span className={`text-sm font-semibold ${isAdmin ? 'text-purple-700' : 'text-slate-500'}`}>Режим админа</span>
-          </div>
-          <button
-            onClick={() => {
-              if (isAdmin) setIsAdmin(false);
-              else setShowPinModal(true);
-            }}
-            className={`w-11 h-6 rounded-full transition-colors relative ${isAdmin ? 'bg-purple-600' : 'bg-slate-300'}`}
-          >
-            <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isAdmin ? 'translate-x-5' : 'translate-x-0'}`}></span>
-          </button>
+          <Tooltip text="Включите режим администратора для добавления данных и управления заторами" position="bottom">
+            <div className="flex items-center gap-2">
+              <ShieldUser className={`w-5 h-5 ${isAdmin ? 'text-purple-600' : 'text-slate-400'}`} />
+              <span className={`text-sm font-semibold ${isAdmin ? 'text-purple-700' : 'text-slate-500'}`}>Режим админа</span>
+            </div>
+          </Tooltip>
+          <Tooltip text={isAdmin ? 'Выключить режим админа' : 'Войти как администратор (PIN)'} position="left">
+            <button
+              onClick={() => {
+                if (isAdmin) setIsAdmin(false);
+                else setShowPinModal(true);
+              }}
+              className={`w-11 h-6 rounded-full transition-colors relative ${isAdmin ? 'bg-purple-600' : 'bg-slate-300'}`}
+            >
+              <span className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${isAdmin ? 'translate-x-5' : 'translate-x-0'}`}></span>
+            </button>
+          </Tooltip>
         </div>
 
         {/* PIN Modal Area */}
@@ -334,25 +351,40 @@ export default function Sidebar() {
 
         {isAdmin && (
           <div className="mb-6 space-y-2">
-            <button
-              onClick={() => {
-                setShowActualMode(true);
-                setShowAddObs(true);
-              }}
-              className="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg shadow hover:bg-blue-700 transition flex items-center justify-center gap-2"
-            >
-              <Crosshair className="w-4 h-4" />
-              Загрузить актуальные данные
-            </button>
-            <button
-              onClick={() => {
-                fileInputRef.current?.click();
-              }}
-              className="w-full bg-green-600 text-white font-medium py-2.5 rounded-lg shadow hover:bg-green-700 transition flex items-center justify-center gap-2"
-            >
-              <Upload className="w-4 h-4" />
-              Импорт из Excel
-            </button>
+            <Tooltip text="Указать текущее положение верхней и нижней кромок ледохода на карте" position="bottom" className="w-full">
+              <button
+                onClick={() => {
+                  setShowActualMode(true);
+                  setShowAddObs(true);
+                }}
+                className="w-full bg-blue-600 text-white font-medium py-2.5 rounded-lg shadow hover:bg-blue-700 transition flex items-center justify-center gap-2"
+              >
+                <Crosshair className="w-4 h-4" />
+                Загрузить актуальные данные
+              </button>
+            </Tooltip>
+            <div className="flex gap-2">
+              <Tooltip text="Загрузить данные наблюдений ледохода из Excel-файла" position="bottom" className="flex-1">
+                <button
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                  }}
+                  className="w-full bg-green-600 text-white font-medium py-2.5 rounded-lg shadow hover:bg-green-700 transition flex items-center justify-center gap-2 text-sm"
+                >
+                  <Upload className="w-4 h-4" />
+                  Импорт
+                </button>
+              </Tooltip>
+              <Tooltip text="Скачать шаблон Excel с примером заполнения данных ледохода" position="bottom" className="flex-1">
+                <button
+                  onClick={downloadIceObservationTemplate}
+                  className="w-full bg-slate-50 text-slate-700 border border-slate-200 font-medium py-2.5 rounded-lg shadow-sm hover:bg-slate-100 transition flex items-center justify-center gap-2 text-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  <span className="text-xs">Шаблон</span>
+                </button>
+              </Tooltip>
+            </div>
             <input
               type="file"
               accept=".xlsx, .xls, .csv"
@@ -431,16 +463,20 @@ export default function Sidebar() {
 
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-              <Calendar className="w-4 h-4" />
-              Временная шкала
-            </h2>
-            <button
-              onClick={() => setIsPlaying(!isPlaying)}
-              className={`p-2 rounded-full transition-colors ${isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
-            >
-              {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            </button>
+            <Tooltip text="Управление временной шкалой: выберите дату или запустите анимацию движения ледохода" position="bottom">
+              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                Временная шкала
+              </h2>
+            </Tooltip>
+            <Tooltip text={isPlaying ? 'Остановить воспроизведение' : 'Запустить анимацию по дням'} position="left">
+              <button
+                onClick={() => setIsPlaying(!isPlaying)}
+                className={`p-2 rounded-full transition-colors ${isPlaying ? 'bg-amber-100 text-amber-700 hover:bg-amber-200' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}
+              >
+                {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+              </button>
+            </Tooltip>
           </div>
 
           <div className="px-2">
@@ -526,10 +562,12 @@ export default function Sidebar() {
 
         <div className="mb-4">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-orange-500" />
-              Заторы
-            </h2>
+            <Tooltip text="Информация о ледовых заторах: просмотр и управление (в режиме админа)" position="bottom">
+              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <ShieldAlert className="w-4 h-4 text-orange-500" />
+                Заторы
+              </h2>
+            </Tooltip>
           </div>
 
           {isAdmin && (
@@ -594,12 +632,16 @@ export default function Sidebar() {
 
                 {isAdmin && jam.status === 'active' && (
                   <div className="flex gap-2 mt-2 pt-2 border-t border-black/5">
-                    <button onClick={() => resolveJam(jam.id)} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors flex items-center gap-1">
-                      <CheckCircle2 className="w-3 h-3" /> Разрешен
-                    </button>
-                    <button onClick={() => removeJam(jam.id)} className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-300 transition-colors flex items-center gap-1 ml-auto">
-                      <XCircle className="w-3 h-3" /> Удал.
-                    </button>
+                    <Tooltip text="Отметить затор как устраненный" position="top">
+                      <button onClick={() => resolveJam(jam.id)} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 transition-colors flex items-center gap-1">
+                        <CheckCircle2 className="w-3 h-3" /> Разрешен
+                      </button>
+                    </Tooltip>
+                    <Tooltip text="Полностью удалить запись о заторе" position="top">
+                      <button onClick={() => removeJam(jam.id)} className="text-xs bg-slate-200 text-slate-600 px-2 py-1 rounded hover:bg-slate-300 transition-colors flex items-center gap-1 ml-auto">
+                        <XCircle className="w-3 h-3" /> Удал.
+                      </button>
+                    </Tooltip>
                   </div>
                 )}
               </div>
@@ -609,18 +651,22 @@ export default function Sidebar() {
 
         <div className="mb-8">
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
-              <MapPin className="w-4 h-4" />
-              Точки наблюдений
-            </h2>
+            <Tooltip text="Список всех точек наблюдений ледохода с датами и координатами" position="bottom">
+              <h2 className="text-sm font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-2">
+                <MapPin className="w-4 h-4" />
+                Точки наблюдений
+              </h2>
+            </Tooltip>
             {isAdmin && (
-              <button
-                onClick={() => setShowAddObs(!showAddObs)}
-                className="text-xs bg-slate-900 text-white px-3 py-1.5 rounded-md hover:bg-slate-800 transition-colors flex items-center gap-1 font-medium"
-              >
-                <Plus className="w-3 h-3" />
-                Добавить
-              </button>
+              <Tooltip text="Добавить новую точку наблюдения вручную" position="left">
+                <button
+                  onClick={() => setShowAddObs(!showAddObs)}
+                  className="text-xs bg-slate-900 text-white px-3 py-1.5 rounded-md hover:bg-slate-800 transition-colors flex items-center gap-1 font-medium"
+                >
+                  <Plus className="w-3 h-3" />
+                  Добавить
+                </button>
+              </Tooltip>
             )}
           </div>
 

@@ -18,6 +18,8 @@ interface AppState {
   setSelectedYear: (year: number) => void;
   isSidebarOpen: boolean;
   setIsSidebarOpen: (val: boolean) => void;
+  isHelpOpen: boolean;
+  setIsHelpOpen: (val: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -39,4 +41,6 @@ export const useAppStore = create<AppState>((set) => ({
   setSelectedYear: (year) => set({ selectedYear: year }),
   isSidebarOpen: true,
   setIsSidebarOpen: (val) => set({ isSidebarOpen: val }),
+  isHelpOpen: false,
+  setIsHelpOpen: (val) => set({ isHelpOpen: val }),
 }));
