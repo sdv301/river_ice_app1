@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { format, min, max, differenceInDays, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus, Search } from 'lucide-react';
+import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, Crosshair, Upload, Activity, X, TrendingDown, TrendingUp, Minus, Search, Snowflake, Database } from 'lucide-react';
 import type { IceObservation, IceJam, PickMode } from '../types';
 import * as XLSX from 'xlsx';
 import { SETTLEMENTS } from '../utils/riverData';
@@ -9,6 +9,8 @@ import { SETTLEMENTS } from '../utils/riverData';
 import SettlementInfoPanel from './SettlementInfoPanel';
 import { useAppStore } from '../store/appStore';
 import { useIceStore } from '../store/iceStore';
+import { useWaterLevelStore } from '../store/waterLevelStore';
+import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
 
 export default function Sidebar() {
@@ -21,8 +23,10 @@ export default function Sidebar() {
   const {
     isAdmin, setIsAdmin,
     pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower,
-    selectedSettlement, setSelectedSettlement, setMapCenter
+    selectedSettlement, setSelectedSettlement, setMapCenter, selectedYear, setSelectedYear
   } = useAppStore();
+
+  const { getStationHistory, getStation } = useWaterLevelStore();
 
   const sectionSpeeds = getSectionSpeeds();
   const [isPlaying, setIsPlaying] = useState(false);
@@ -63,8 +67,8 @@ export default function Sidebar() {
     }
   }, [draftJamCoords, setPickMode]);
 
-  const minDate = observations.length > 0 ? min(observations.map(o => new Date(o.date))) : new Date();
-  const maxDate = observations.length > 0 ? max(observations.map(o => new Date(o.date))) : new Date();
+  const minDate = observations.length > 0 ? min(observations.map(o => new Date(o.date))) : new Date('2026-05-01');
+  const maxDate = observations.length > 0 ? max(observations.map(o => new Date(o.date))) : new Date('2026-05-31');
   const totalDays = differenceInDays(maxDate, minDate);
 
   const currentDays = differenceInDays(new Date(currentDate), minDate);
@@ -122,7 +126,7 @@ export default function Sidebar() {
     if (isPlaying) {
       interval = window.setInterval(() => {
         const curDateObj = new Date(currentDate);
-        if (curDateObj >= maxDate) {
+        if (curDateObj.getTime() >= maxDate.getTime()) {
           setIsPlaying(false);
           setCurrentDate(minDate.toISOString()); // Reset
         } else {
@@ -189,19 +193,72 @@ export default function Sidebar() {
         )}
       </div>
 
-      <div className="p-4 border-b border-slate-100 flex-shrink-0 bg-white z-20">
-        <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Ледоход РС(Я)</h1>
-        <p className="text-sm text-slate-500 mt-1">Мониторинг реки Лена</p>
+      <div className="p-5 border-b border-slate-100 flex-shrink-0 bg-white z-20">
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl shadow-inner shadow-blue-400 flex items-center justify-center shrink-0">
+            <Snowflake className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold bg-gradient-to-r from-blue-700 to-blue-500 bg-clip-text text-transparent leading-tight">
+              Ледоход Якутии
+            </h1>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-0.5">
+              Система мониторинга
+            </p>
+          </div>
+        </div>
+
+        {/* Database Link Section */}
+        <div className="mb-4">
+          <a
+            href="/database.html"
+            target="_blank"
+            className="w-full bg-slate-50 hover:bg-blue-50 text-blue-700 border border-blue-100 font-bold py-2.5 px-4 rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all group"
+          >
+            <Database className="w-4 h-4 group-hover:scale-110 transition-transform" />
+            <span className="text-sm">Архив: База данных 2025</span>
+          </a>
+        </div>
+
+        {/* Year Switcher within Sidebar */}
+        <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 mb-4">
+          <button
+            onClick={() => {
+              setSelectedYear(2025);
+              setCurrentDate('2025-05-15T12:00:00Z');
+            }}
+            className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+              selectedYear === 2025 
+                ? 'bg-white text-blue-700 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            2025 (Архив)
+          </button>
+          <button
+            onClick={() => {
+              setSelectedYear(2026);
+              setCurrentDate('2026-05-01T12:00:00Z');
+            }}
+            className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
+              selectedYear === 2026 
+                ? 'bg-white text-blue-700 shadow-sm' 
+                : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            2026 (Текущий)
+          </button>
+        </div>
 
         {/* Search Bar */}
-        <div className="mt-4 relative">
+        <div className="relative">
           <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
             <Search className="h-4 w-4 text-slate-400" />
           </div>
           <input
             type="text"
             className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-lg leading-5 bg-slate-50 text-slate-900 placeholder-slate-400 focus:outline-none focus:bg-white focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-colors"
-            placeholder="Найти населенный пункт..."
+            placeholder="Поиск населенного пункта..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
@@ -324,24 +381,48 @@ export default function Sidebar() {
             </div>
 
             {(() => {
-              const history = generateWaterLevelHistory(selectedSettlement.name, currentDate, 2);
+              const history = getStationHistory(selectedSettlement.name, currentDate, 4);
+              if (history.length < 1) return null;
+              
+              const stnMeta = getStation(selectedSettlement.name);
               const currentLevel = history[history.length - 1].level;
-              const prevLevel = history[history.length - 2].level;
+              const prevLevel = history.length > 1 ? history[history.length - 2].level : currentLevel;
               const diff = currentLevel - prevLevel;
+              
               return (
-                <div className="mt-4 pt-3 border-t border-blue-100 grid grid-cols-2 gap-4">
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-blue-400">Уровень воды</div>
-                    <div className="font-bold text-blue-700 text-xl">{currentLevel} <span className="text-xs font-normal">см</span></div>
-                    <div className={`text-xs font-bold flex items-center gap-0.5 mt-0.5 ${diff > 0 ? 'text-red-500' : diff < 0 ? 'text-green-500' : 'text-slate-400'}`}>
-                      {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                      {diff > 0 ? '+' : ''}{diff} см
+                <div className="mt-4 pt-3 border-t border-blue-100">
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                    <div>
+                      <div className="text-[10px] uppercase font-bold text-blue-400">Уровень воды</div>
+                      <div className="font-bold text-blue-700 text-xl">{currentLevel} <span className="text-xs font-normal">см</span></div>
+                      {history.length > 1 && (
+                        <div className={`text-xs font-bold flex items-center gap-0.5 mt-0.5 ${diff > 0 ? 'text-red-500' : diff < 0 ? 'text-green-500' : 'text-slate-400'}`}>
+                          {diff > 0 ? <TrendingUp className="w-3 h-3" /> : diff < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
+                          {diff > 0 ? '+' : ''}{diff} см
+                        </div>
+                      )}
                     </div>
+                    {stnMeta?.criticalLevel && (
+                      <div>
+                        <div className="text-[10px] uppercase font-bold text-amber-500">До критического</div>
+                        <div className="font-bold text-amber-700 text-xl">{Math.max(0, stnMeta.criticalLevel - currentLevel)} <span className="text-xs font-normal">см</span></div>
+                      </div>
+                    )}
                   </div>
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-amber-500">До критического</div>
-                    <div className="font-bold text-amber-700 text-xl">124 <span className="text-xs font-normal">см</span></div>
-                  </div>
+                  
+                  {history.length > 1 && (
+                    <div className="bg-white/60 rounded-md border border-blue-100 p-2 mt-2">
+                      <div className="text-[9px] uppercase font-bold text-slate-500 mb-1 border-b border-blue-100 pb-1">Последние судные дни</div>
+                      <div className="flex flex-col gap-1 text-xs font-medium text-slate-700">
+                        {history.slice().reverse().map((h, i) => (
+                          <div key={h.date} className="flex justify-between items-center">
+                            <span className={i === 0 ? "font-bold text-blue-700" : ""}>{format(new Date(h.date), 'd MMM', { locale: ru })}</span>
+                            <span className={i === 0 ? "font-bold text-blue-700" : "text-slate-600"}>{h.level} см</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -428,6 +509,7 @@ export default function Sidebar() {
                       </span>
                       <span className="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 rounded">
                         {s.speed.toFixed(1)} <span className="text-[10px] font-medium text-blue-400">км/сут</span>
+                        <span className="text-[9px] text-slate-400 ml-1">({(s.speed / 24).toFixed(1)} км/ч)</span>
                       </span>
                     </div>
                     <div className="text-[10px] text-slate-500">
@@ -671,23 +753,39 @@ export default function Sidebar() {
           )}
 
           <div className="space-y-3">
-            {observations.slice().reverse().map((obs) => (
-              <div key={obs.id} className="p-3 rounded-lg border border-slate-100 bg-white hover:bg-slate-50 transition cursor-pointer" onClick={() => setCurrentDate(obs.date)}>
-                <div className="font-semibold text-slate-800 text-sm">
-                  {format(new Date(obs.date), 'd MMM yyyy', { locale: ru })}
-                </div>
-                {obs.locationName && (
-                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                    <Info className="w-3 h-3" /> {obs.locationName}
+            <AnimatePresence>
+              {observations.slice().reverse().map((obs, idx) => (
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95 }}
+                  transition={{ duration: 0.2, delay: idx * 0.05 }}
+                  key={obs.id} 
+                  className={`p-3 rounded-lg border flex flex-col gap-2 relative transition-shadow hover:shadow-md cursor-pointer ${
+                    isAdmin ? 'border-slate-200 bg-white hover:border-blue-300' 
+                    : (obs.date === currentDate ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-400' : 'border-slate-200 bg-white')
+                  }`}
+                  onClick={() => {
+                    if (!isAdmin && isPlaying) setIsPlaying(false);
+                    setCurrentDate(obs.date);
+                  }}
+                >
+                  <div className="font-semibold text-slate-800 text-sm">
+                    {format(new Date(obs.date), 'd MMM yyyy', { locale: ru })}
                   </div>
-                )}
-                {obs.notes && (
-                  <div className="text-xs text-slate-400 mt-1 italic leading-tight">
-                    "{obs.notes}"
-                  </div>
-                )}
-              </div>
-            ))}
+                  {obs.locationName && (
+                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                      <Info className="w-3 h-3" /> {obs.locationName}
+                    </div>
+                  )}
+                  {obs.notes && (
+                    <div className="text-xs text-slate-400 mt-1 italic leading-tight">
+                      "{obs.notes}"
+                    </div>
+                  )}
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         </div>
       </div>

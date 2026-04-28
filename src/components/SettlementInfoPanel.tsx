@@ -2,9 +2,9 @@ import React from 'react';
 import { ArrowLeft, Info, Droplets, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { format, subDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { generateWaterLevelHistory } from '../utils/mockDataService';
 import { ResponsiveContainer, LineChart, Line, XAxis, Tooltip } from 'recharts';
 import { useIceStore } from '../store/iceStore';
+import { useWaterLevelStore } from '../store/waterLevelStore';
 
 interface Props {
   settlement: any;
@@ -14,9 +14,14 @@ interface Props {
 
 export default function SettlementInfoPanel({ settlement, onClose, currentDate }: Props) {
   const { getSectionSpeeds } = useIceStore();
+  const { getStationHistory, getStation } = useWaterLevelStore();
   const sectionSpeeds = getSectionSpeeds();
 
-  const history = generateWaterLevelHistory(settlement.name, currentDate, 7);
+  const history = getStationHistory(settlement.name, currentDate, 7);
+  const stnMeta = getStation(settlement.name);
+  
+  if (history.length < 2) return null; // Wait for data
+  
   const currentLevel = history[history.length - 1].level;
   const prevLevel = history[history.length - 2].level;
   const diff = currentLevel - prevLevel;
@@ -90,12 +95,14 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
           </div>
         </div>
 
-        <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm text-amber-800 flex gap-2">
-          <Info className="w-5 h-5 shrink-0 text-amber-600" />
-          <p>
-            Исторический максимум для этого населенного пункта: <b>{currentLevel + 124} см</b>. До критической отметки остается {124} см.
-          </p>
-        </div>
+        {(stnMeta?.criticalLevel) && (
+          <div className="bg-amber-50 border border-amber-200 p-3 rounded-lg text-sm text-amber-800 flex gap-2">
+            <Info className="w-5 h-5 shrink-0 text-amber-600" />
+            <p>
+              Критический уровень для этого населенного пункта: <b>{stnMeta.criticalLevel} см</b>. До достижения критической отметки остается {stnMeta.criticalLevel - currentLevel} см.
+            </p>
+          </div>
+        )}
 
         {settlement.distanceToMouth && (
           <div className="bg-slate-50 border border-slate-200 p-3 rounded-lg flex flex-col gap-1">

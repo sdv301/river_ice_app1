@@ -380,7 +380,7 @@
       }
     }
   },
-  "glyphs": "https://frexosm.ruhttps://frexosm.ru/fonts/{fontstack}/{range}.pbf",
+  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",

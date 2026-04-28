@@ -14,6 +14,10 @@ interface AppState {
   setSelectedSettlement: (s: any | null) => void;
   mapCenter: { lng: number; lat: number; zoom: number; triggerFly: number } | null;
   setMapCenter: (lng: number, lat: number, zoom?: number) => void;
+  selectedYear: number;
+  setSelectedYear: (year: number) => void;
+  isSidebarOpen: boolean;
+  setIsSidebarOpen: (val: boolean) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -31,4 +35,8 @@ export const useAppStore = create<AppState>((set) => ({
   setMapCenter: (lng, lat, zoom = 8) => set((state) => ({ 
     mapCenter: { lng, lat, zoom, triggerFly: (state.mapCenter?.triggerFly || 0) + 1 } 
   })),
+  selectedYear: 2026,
+  setSelectedYear: (year) => set({ selectedYear: year }),
+  isSidebarOpen: true,
+  setIsSidebarOpen: (val) => set({ isSidebarOpen: val }),
 }));

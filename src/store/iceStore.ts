@@ -2,10 +2,10 @@ import { create } from 'zustand';
 import type { IceObservation, IceJam } from '../types';
 import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/mapUtils';
 
-const INITIAL_DATA: IceObservation[] = [
+export const ARCHIVE_2025: IceObservation[] = [
   {
     id: '1',
-    date: '2026-05-01T12:00:00Z',
+    date: '2025-05-01T12:00:00Z',
     upperEdgeCoords: [105.76, 56.80], // Ust-Kut
     lowerEdgeCoords: [108.11, 57.77], // Kirensk
     locationName: 'Усть-Кут - Киренск',
@@ -13,7 +13,7 @@ const INITIAL_DATA: IceObservation[] = [
   },
   {
     id: '2',
-    date: '2026-05-05T12:00:00Z',
+    date: '2025-05-05T12:00:00Z',
     upperEdgeCoords: [112.56, 59.45], // Vitim
     lowerEdgeCoords: [112.74, 59.62], // Peleduy
     locationName: 'Витим - Пеледуй',
@@ -21,7 +21,7 @@ const INITIAL_DATA: IceObservation[] = [
   },
   {
     id: '3',
-    date: '2026-05-10T12:00:00Z',
+    date: '2025-05-10T12:00:00Z',
     upperEdgeCoords: [120.42, 60.37], // Olekminsk
     lowerEdgeCoords: [125.30, 61.10], // Sinsk
     locationName: 'Олекминск - Синск',
@@ -29,7 +29,7 @@ const INITIAL_DATA: IceObservation[] = [
   },
   {
     id: '4',
-    date: '2026-05-15T12:00:00Z',
+    date: '2025-05-15T12:00:00Z',
     upperEdgeCoords: [129.13, 61.48], // Pokrovsk
     lowerEdgeCoords: [129.73, 62.03], // Yakutsk
     locationName: 'Покровск - Якутск',
@@ -37,7 +37,7 @@ const INITIAL_DATA: IceObservation[] = [
   },
   {
     id: '5',
-    date: '2026-05-22T12:00:00Z',
+    date: '2025-05-22T12:00:00Z',
     upperEdgeCoords: [127.47, 63.92], // Sangar
     lowerEdgeCoords: [123.39, 66.76], // Zhigansk
     locationName: 'Сангар - Жиганск',
@@ -45,7 +45,7 @@ const INITIAL_DATA: IceObservation[] = [
   },
   {
     id: '6',
-    date: '2026-05-31T12:00:00Z',
+    date: '2025-05-31T12:00:00Z',
     upperEdgeCoords: [127.87, 70.68], // Kyusyur
     lowerEdgeCoords: [126.70, 72.50], // Delta sea entry
     locationName: 'Кюсюр - Дельта',
@@ -58,6 +58,7 @@ interface IceStore {
   currentDate: string;
   jams: IceJam[];
   draftJamCoords: [number, number] | null;
+  loadYearData: (year: number) => void;
   setCurrentDate: (date: string) => void;
   setDraftJamCoords: (coords: [number, number] | null) => void;
   addObservation: (obs: Omit<IceObservation, 'id'>) => void;
@@ -70,18 +71,34 @@ interface IceStore {
 }
 
 export const useIceStore = create<IceStore>((set, get) => ({
-  observations: INITIAL_DATA.map(obs => ({
-    ...obs,
-    upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
-    lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
-  })),
-  currentDate: INITIAL_DATA[0].date,
+  observations: [],
+  currentDate: new Date('2026-05-01T12:00:00Z').toISOString(),
   jams: [],
   draftJamCoords: null,
 
   setCurrentDate: (date: string) => set({ currentDate: date }),
   
   setDraftJamCoords: (coords) => set({ draftJamCoords: coords }),
+
+  loadYearData: (year: number) => {
+    if (year === 2025) {
+      set({
+        observations: ARCHIVE_2025.map(obs => ({
+          ...obs,
+          upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+          lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+        })),
+        currentDate: ARCHIVE_2025[0].date,
+        jams: [], // Clear or load 2025 jams
+      });
+    } else {
+      set({
+        observations: [],
+        currentDate: new Date('2026-05-01T12:00:00Z').toISOString(),
+        jams: [],
+      });
+    }
+  },
 
   addObservation: (obs) => set((state) => {
     const newObs = {
@@ -216,7 +233,8 @@ export const useIceStore = create<IceStore>((set, get) => ({
           endLoc: obs2.locationName || `Участок ${i+2}`,
           speed: distanceKm / daysDiff,
           startDate: obs1.date,
-          endDate: obs2.date
+          endDate: obs2.date,
+          midCoords: interpolateAlongRiver(obs1.upperEdgeCoords, obs2.upperEdgeCoords, 0.5)
         });
       }
     }
