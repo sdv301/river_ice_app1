@@ -73,21 +73,21 @@ export function getSegments(upperEdge: [number, number] | null, lowerEdge: [numb
   // Segment 1: Water (0 to upperDist)
   if (upperDist > 0) {
     const waterSeg = lineSliceAlong(line, 0, upperDist, { units: 'kilometers' });
-    waterSeg.properties = { ...line.properties, color: '#3b82f6', status: 'water' }; // Blue
+    waterSeg.properties = { ...line.properties, color: '#1d4ed8', status: 'water' }; // Deep Blue
     segments.push(waterSeg);
   }
 
   // Segment 2: Drift (upperDist to lowerDist)
   if (lowerDist > upperDist) {
     const driftSeg = lineSliceAlong(line, upperDist, lowerDist, { units: 'kilometers' });
-    driftSeg.properties = { ...line.properties, color: '#93c5fd', status: 'drift' }; // Light blue/mixed
+    driftSeg.properties = { ...line.properties, color: '#38bdf8', status: 'drift' }; // Sky Blue
     segments.push(driftSeg);
   }
 
   // Segment 3: Ice (lowerDist to end)
   if (lowerDist < totalLength) {
     const iceSeg = lineSliceAlong(line, lowerDist, totalLength, { units: 'kilometers' });
-    iceSeg.properties = { ...line.properties, color: '#f8fafc', status: 'ice' }; // White
+    iceSeg.properties = { ...line.properties, color: '#cbd5e1', status: 'ice' }; // Slate 300 (visible on white)
     segments.push(iceSeg);
   }
 

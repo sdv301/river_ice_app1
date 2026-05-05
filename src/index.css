@@ -1,1 +1,36 @@
 @import "tailwindcss";
+
+@media print {
+  /* Hide sidebar and UI controls during print */
+  .print-hide {
+    display: none !important;
+  }
+  
+  .maplibregl-ctrl-top-left,
+  .maplibregl-ctrl-top-right,
+  .maplibregl-ctrl-bottom-left,
+  .maplibregl-ctrl-bottom-right {
+    display: none !important;
+  }
+
+  /* Best print margins for a full map */
+  @page {
+    size: landscape;
+    margin: 0;
+  }
+
+  /* Force the map to fill the printable area */
+  body, html, #root {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  /* Optional grayscale class for B&W printing */
+  body.bw-print-mode .maplibregl-canvas {
+    filter: grayscale(100%) contrast(1.1) brightness(1.1);
+  }
+
+}

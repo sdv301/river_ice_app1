@@ -2,7 +2,7 @@ import React, { useMemo, useState, useRef, useEffect } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl, Popup, useMap } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource } from '../utils/mapUtils';
-import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home } from 'lucide-react';
+import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop } from 'lucide-react';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
 import { SETTLEMENTS } from '../utils/riverData';
@@ -88,7 +88,8 @@ export default function MapEditor() {
   const { 
     isAdmin, pickMode, draftUpper, draftLower, 
     setDraftUpper, setDraftLower,
-    setSelectedSettlement, selectedSettlement, mapCenter, isSidebarOpen
+    setSelectedSettlement, selectedSettlement, mapCenter, isSidebarOpen,
+    isPrintCropMode, setIsPrintCropMode, printType, setIsSidebarOpen
   } = useAppStore();
   const mapRef = useRef<any>(null);
 
@@ -102,6 +103,94 @@ export default function MapEditor() {
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
   const [mapBounds, setMapBounds] = useState<[number, number, number, number] | null>(null);
+
+  // Print Crop State
+  const [isDrawingMode, setIsDrawingMode] = useState(false);
+  const [cropStart, setCropStart] = useState<{x: number, y: number} | null>(null);
+  const [customCropRect, setCustomCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
+
+  const handleCropMouseDown = (e: React.MouseEvent) => {
+    setCropStart({ x: e.clientX, y: e.clientY });
+  };
+  const handleCropMouseMove = (e: React.MouseEvent) => {
+    if (cropStart && isDrawingMode) {
+      setCustomCropRect({
+        left: Math.min(cropStart.x, e.clientX),
+        top: Math.min(cropStart.y, e.clientY),
+        width: Math.abs(e.clientX - cropStart.x),
+        height: Math.abs(e.clientY - cropStart.y)
+      });
+    }
+  };
+  const handleCropMouseUp = () => {
+    if (cropStart) {
+      setCropStart(null);
+      setIsDrawingMode(false);
+    }
+  };
+
+  const handleExecutePrint = () => {
+    if (!mapRef.current) return;
+    
+    let maskEl = document.getElementById('print-custom-mask');
+    if (!maskEl || maskEl.style.display === 'none') {
+      maskEl = document.getElementById('print-default-mask');
+    }
+    
+    let originalView: any = null;
+    const map = mapRef.current.getMap();
+    
+    if (maskEl) {
+      const rect = maskEl.getBoundingClientRect();
+      originalView = {
+        center: map.getCenter(),
+        zoom: map.getZoom(),
+        pitch: map.getPitch(),
+        bearing: map.getBearing()
+      };
+      
+      const p1 = map.unproject([rect.left, rect.top]);
+      const p2 = map.unproject([rect.right, rect.bottom]);
+      
+      const minLng = Math.min(p1.lng, p2.lng);
+      const maxLng = Math.max(p1.lng, p2.lng);
+      const minLat = Math.min(p1.lat, p2.lat);
+      const maxLat = Math.max(p1.lat, p2.lat);
+      
+      // Zoom map to strictly fit the selected geographic bounds
+      map.fitBounds([ [minLng, minLat], [maxLng, maxLat] ], { padding: 0, duration: 0 });
+    }
+    
+    if (printType === 'bw') {
+      document.body.classList.add('bw-print-mode');
+    }
+    
+    // Wait 500ms for tiles to load at the new zoom level
+    setTimeout(() => {
+      window.print();
+      
+      if (printType === 'bw') {
+        document.body.classList.remove('bw-print-mode');
+      }
+      
+      // Restore previous map view
+      if (originalView) {
+        map.jumpTo(originalView);
+      }
+      
+      setIsPrintCropMode(false);
+      setCustomCropRect(null);
+      setIsDrawingMode(false);
+      setIsSidebarOpen(true);
+    }, 500);
+  };
+
+  const handleCancelPrint = () => {
+    setIsPrintCropMode(false);
+    setCustomCropRect(null);
+    setIsDrawingMode(false);
+    setIsSidebarOpen(true);
+  };
 
   const updateBounds = () => {
     if (!mapRef.current) return;
@@ -208,8 +297,84 @@ export default function MapEditor() {
 
   return (
     <div className="w-full h-full relative group">
+      {/* Print Crop Mode Overlay */}
+      {isPrintCropMode && (
+        <div className="absolute inset-0 z-[100] pointer-events-none print-hide overflow-hidden">
+          
+          {/* Default Box Shadow Mask */}
+          {!isDrawingMode && !customCropRect && (
+            <div id="print-default-mask" className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[85vw] h-[75vh] md:w-[70vw] md:h-[65vh] border-2 border-dashed border-white shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] rounded-lg pointer-events-none flex items-center justify-center transition-all">
+               <span className="text-white/40 text-xl font-black uppercase tracking-widest pointer-events-none select-none">Область печати</span>
+            </div>
+          )}
+
+          {/* Custom Drawn Mask */}
+          {(isDrawingMode || customCropRect) && (
+            <div 
+              id="print-custom-mask"
+              className="absolute border-2 border-dashed border-blue-400 shadow-[0_0_0_9999px_rgba(0,0,0,0.5)] pointer-events-none flex items-center justify-center transition-all duration-75 bg-blue-500/10"
+              style={
+                customCropRect 
+                  ? { left: customCropRect.left, top: customCropRect.top, width: customCropRect.width, height: customCropRect.height }
+                  : { display: 'none' }
+              }
+            >
+              {customCropRect && !isDrawingMode && <span className="text-white/60 font-bold uppercase tracking-widest pointer-events-none select-none drop-shadow-md text-sm">Выделенная область</span>}
+            </div>
+          )}
+          
+          {/* Drawing Canvas Overlay */}
+          {isDrawingMode && (
+             <div 
+               className="absolute inset-0 z-[110] cursor-crosshair touch-none pointer-events-auto"
+               onMouseDown={handleCropMouseDown}
+               onMouseMove={handleCropMouseMove}
+               onMouseUp={handleCropMouseUp}
+               onMouseLeave={handleCropMouseUp}
+             />
+          )}
+
+          {/* Print Action Bar */}
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-3 bg-white/95 backdrop-blur-md p-3 rounded-2xl shadow-2xl pointer-events-auto border border-slate-200 z-[120]">
+            <div className="text-sm font-bold text-slate-800 mx-2 flex flex-col">
+              <span>Область печати</span>
+              <span className="text-[10px] text-slate-500 font-medium">
+                {isDrawingMode ? 'Рисуйте рамку на карте...' : customCropRect ? 'Область выделена вручную' : 'Двигайте карту или выделите'}
+              </span>
+            </div>
+            <div className="w-px h-8 bg-slate-200 mx-1"></div>
+            
+            <button
+              onClick={() => { setIsDrawingMode(!isDrawingMode); if (!isDrawingMode) setCustomCropRect(null); }}
+              className={`px-3 py-2 rounded-xl font-medium transition flex items-center gap-2 border ${
+                isDrawingMode 
+                  ? 'bg-blue-50 border-blue-200 text-blue-700 shadow-inner' 
+                  : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-600'
+              }`}
+            >
+              <Crop className="w-4 h-4" /> 
+              {isDrawingMode ? 'Рисование...' : 'Выделить'}
+            </button>
+
+            <button
+              onClick={handleCancelPrint}
+              className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 py-2 rounded-xl font-medium transition flex items-center gap-2 ml-1"
+            >
+              <X className="w-4 h-4" /> Отмена
+            </button>
+            <button
+              onClick={handleExecutePrint}
+              disabled={isDrawingMode && !customCropRect}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-6 py-2 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-blue-500/30"
+            >
+              <Printer className="w-4 h-4" /> Распечатать ({printType === 'bw' ? 'Ч/Б' : 'Цвет'})
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Map Type Switcher */}
-      <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-1.5 flex gap-1 border border-slate-200">
+      <div className="absolute top-4 left-4 z-10 bg-white/90 backdrop-blur-sm rounded-lg shadow-md p-1.5 flex gap-1 border border-slate-200 print-hide">
         <Tooltip text="Спутниковые снимки ESRI" position="bottom">
           <button
             onClick={() => setMapType('satellite')}
@@ -255,6 +420,7 @@ export default function MapEditor() {
         onClick={onMapClick}
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHoverInfo(null)}
+        preserveDrawingBuffer={true}
       >
         <Source id="yakutia-bounds" type="geojson" data="/yakutia_boundaries.json">
           <Layer
@@ -307,11 +473,20 @@ export default function MapEditor() {
             }}
           />
           <Layer
+            id="river-line-casing"
+            type="line"
+            paint={{
+              'line-color': '#0f172a',
+              'line-width': 8,
+              'line-opacity': 0.6
+            }}
+          />
+          <Layer
             id="river-line"
             type="line"
             paint={{
               'line-color': ['get', 'color'],
-              'line-width': 6,
+              'line-width': 4,
             }}
           />
         </Source>
@@ -452,7 +627,7 @@ export default function MapEditor() {
 
         {/* Reset View Button */}
         <div 
-          className="absolute bottom-[140px] z-10 p-[1px] bg-white border border-slate-200 rounded shadow-[0_0_0_2px_rgba(0,0,0,0.1)] transition-transform duration-300"
+          className="absolute bottom-[140px] z-10 p-[1px] bg-white border border-slate-200 rounded shadow-[0_0_0_2px_rgba(0,0,0,0.1)] transition-transform duration-300 print-hide"
           style={{ transform: `translateX(${isSidebarOpen ? '-384px' : '0'})`, right: '8px' }}
         >
           <Tooltip text="Сбросить масштаб и показать всю Якутию" position="left">

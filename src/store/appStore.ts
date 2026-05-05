@@ -20,6 +20,10 @@ interface AppState {
   setIsSidebarOpen: (val: boolean) => void;
   isHelpOpen: boolean;
   setIsHelpOpen: (val: boolean) => void;
+  isPrintCropMode: boolean;
+  setIsPrintCropMode: (val: boolean) => void;
+  printType: 'color' | 'bw';
+  setPrintType: (type: 'color' | 'bw') => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -43,4 +47,8 @@ export const useAppStore = create<AppState>((set) => ({
   setIsSidebarOpen: (val) => set({ isSidebarOpen: val }),
   isHelpOpen: false,
   setIsHelpOpen: (val) => set({ isHelpOpen: val }),
+  isPrintCropMode: false,
+  setIsPrintCropMode: (val) => set({ isPrintCropMode: val }),
+  printType: 'color',
+  setPrintType: (type) => set({ printType: type }),
 }));

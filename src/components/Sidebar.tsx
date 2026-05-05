@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { format, min, max, differenceInDays, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, RefreshCw, Activity, X, TrendingDown, TrendingUp, Minus, Search, Snowflake, Database, Download, HelpCircle, Cloud, AlertCircle, Loader2 } from 'lucide-react';
+import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, RefreshCw, Activity, X, TrendingDown, TrendingUp, Minus, Search, Snowflake, Database, Download, HelpCircle, Cloud, AlertCircle, Loader2, Printer } from 'lucide-react';
 import type { IceObservation, IceJam, PickMode } from '../types';
 import * as XLSX from 'xlsx';
 import { SETTLEMENTS } from '../utils/riverData';
@@ -26,7 +26,7 @@ export default function Sidebar() {
     isAdmin, setIsAdmin,
     pickMode, setPickMode, draftUpper, draftLower, setDraftUpper, setDraftLower,
     selectedSettlement, setSelectedSettlement, setMapCenter, selectedYear, setSelectedYear,
-    setIsHelpOpen
+    setIsHelpOpen, isPrintCropMode, setIsPrintCropMode, printType, setPrintType, setIsSidebarOpen
   } = useAppStore();
 
   const { getStationHistory, getStation, loadData: reloadWaterData } = useWaterLevelStore();
@@ -41,6 +41,12 @@ export default function Sidebar() {
 
   // Quick actual update mode
   const [showActualMode, setShowActualMode] = useState(false);
+
+  const handlePrintClick = (bw: boolean) => {
+    setPrintType(bw ? 'bw' : 'color');
+    setIsPrintCropMode(true);
+    setIsSidebarOpen(false);
+  };
 
   // Controls for adding jam
   const [showAddJam, setShowAddJam] = useState(false);
@@ -389,6 +395,24 @@ export default function Sidebar() {
               >
                 <Download className="w-4 h-4" />
                 <span className="text-xs">Скачать шаблон</span>
+              </button>
+            </div>
+
+            {/* Print Buttons */}
+            <div className="flex gap-2">
+              <button
+                onClick={() => handlePrintClick(false)}
+                className="flex-1 bg-slate-50 text-slate-700 border border-slate-200 font-medium py-2.5 rounded-lg shadow-sm hover:bg-slate-100 transition flex items-center justify-center gap-2 text-sm"
+              >
+                <Printer className="w-4 h-4 text-blue-600" />
+                <span className="text-xs">Печать карты</span>
+              </button>
+              <button
+                onClick={() => handlePrintClick(true)}
+                className="flex-1 bg-slate-50 text-slate-700 border border-slate-200 font-medium py-2.5 rounded-lg shadow-sm hover:bg-slate-100 transition flex items-center justify-center gap-2 text-sm"
+              >
+                <Printer className="w-4 h-4 text-slate-600" />
+                <span className="text-xs">Ч/Б Печать</span>
               </button>
             </div>
 

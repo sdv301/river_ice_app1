@@ -128,7 +128,7 @@ export default function App() {
         {/* Small tour anchor on the map — used by the interactive tour */}
         <div
           data-tour="map-indicator"
-          className="absolute top-4 left-1/2 -translate-x-1/2 z-[5] pointer-events-none"
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-[5] pointer-events-none print-hide"
           style={{ width: 220, height: 36 }}
         >
           <div className="w-full h-full bg-white/80 backdrop-blur-sm rounded-xl border border-slate-200/60 flex items-center justify-center gap-2 shadow-sm">
@@ -141,7 +141,7 @@ export default function App() {
 
         {/* Speed / Distance Indicator */}
         {currentSpeed !== null && (
-          <div className="absolute bottom-16 left-3 z-10 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 min-w-[240px] hover:scale-105">
+          <div className="absolute bottom-16 left-3 z-10 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 min-w-[240px] hover:scale-105 print-hide">
             <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-100">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -163,13 +163,13 @@ export default function App() {
       </div>
 
       {/* Right Sidebar Overlay */}
-      <div className={`absolute top-0 right-0 h-full w-96 bg-white shadow-2xl transition-all duration-300 z-30 ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'} ${isHelpOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+      <div className={`absolute top-0 right-0 h-full w-96 bg-white shadow-2xl transition-all duration-300 z-30 ${isSidebarOpen ? 'translate-x-0' : 'translate-x-full'} ${isHelpOpen ? 'opacity-0 pointer-events-none' : 'opacity-100'} print-hide`}>
 
         {/* Sidebar Toggle Button attached to its edge */}
         <button
           data-tour="sidebar-toggle"
           onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-          className="absolute top-6 left-0 -ml-[50px] w-[50px] h-12 bg-white border border-slate-200 border-r-0 text-slate-800 p-2 rounded-l-xl shadow-[-6px_0_12px_rgba(0,0,0,0.1)] hover:bg-slate-50 flex items-center justify-center focus:outline-none focus:ring-0 cursor-pointer z-50 transition-colors"
+          className="absolute top-6 left-0 -ml-[50px] w-[50px] h-12 bg-white border border-slate-200 border-r-0 text-slate-800 p-2 rounded-l-xl shadow-[-6px_0_12px_rgba(0,0,0,0.1)] hover:bg-slate-50 flex items-center justify-center focus:outline-none focus:ring-0 cursor-pointer z-50 transition-colors print-hide"
         >
           {isSidebarOpen ? <PanelLeftOpen className="w-6 h-6 rotate-180 text-blue-600" /> : <PanelLeftClose className="w-6 h-6 rotate-180 text-slate-600" />}
         </button>
