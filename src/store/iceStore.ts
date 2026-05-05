@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { IceObservation, IceJam } from '../types';
 import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/mapUtils';
+import { fetchAllIceData } from '../utils/yandexDisk';
 
 export const ARCHIVE_2025: IceObservation[] = [
   {
@@ -58,6 +59,10 @@ interface IceStore {
   currentDate: string;
   jams: IceJam[];
   draftJamCoords: [number, number] | null;
+  isLoading: boolean;
+  lastSyncTime: string | null;
+  syncError: string | null;
+  syncFileCount: number;
   loadYearData: (year: number) => void;
   setCurrentDate: (date: string) => void;
   setDraftJamCoords: (coords: [number, number] | null) => void;
@@ -65,6 +70,7 @@ interface IceStore {
   addJam: (jam: Omit<IceJam, 'id' | 'status'>) => void;
   resolveJam: (id: string) => void;
   removeJam: (id: string) => void;
+  fetchFromYandexDisk: () => Promise<void>;
   getCurrentObservationData: () => any;
   getDailySpeed: () => any;
   getSectionSpeeds: () => any[];
@@ -75,6 +81,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
   currentDate: new Date('2026-05-01T12:00:00Z').toISOString(),
   jams: [],
   draftJamCoords: null,
+  isLoading: false,
+  lastSyncTime: null,
+  syncError: null,
+  syncFileCount: 0,
 
   setCurrentDate: (date: string) => set({ currentDate: date }),
   
@@ -96,6 +106,52 @@ export const useIceStore = create<IceStore>((set, get) => ({
         observations: [],
         currentDate: new Date('2026-05-01T12:00:00Z').toISOString(),
         jams: [],
+      });
+    }
+  },
+
+  fetchFromYandexDisk: async () => {
+    set({ isLoading: true, syncError: null });
+    try {
+      const result = await fetchAllIceData();
+      
+      if (result.observations.length > 0) {
+        const newObs: IceObservation[] = result.observations.map((obs, idx) => ({
+          id: `yd-${Date.now()}-${idx}`,
+          date: obs.date,
+          upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+          lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+          locationName: obs.locationName,
+          notes: obs.notes,
+        }));
+
+        set((state) => ({
+          observations: newObs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+          isLoading: false,
+          lastSyncTime: new Date().toISOString(),
+          syncFileCount: result.fileCount,
+          syncError: result.errors.length > 0 ? result.errors.join('; ') : null,
+        }));
+
+        // Auto-set current date to first observation
+        if (newObs.length > 0) {
+          const sorted = newObs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          set({ currentDate: sorted[0].date });
+        }
+      } else {
+        set({
+          isLoading: false,
+          lastSyncTime: new Date().toISOString(),
+          syncFileCount: result.fileCount,
+          syncError: result.errors.length > 0 
+            ? result.errors.join('; ') 
+            : 'Файлы не найдены или не содержат данных',
+        });
+      }
+    } catch (e: any) {
+      set({
+        isLoading: false,
+        syncError: e.message || 'Ошибка при загрузке данных',
       });
     }
   },

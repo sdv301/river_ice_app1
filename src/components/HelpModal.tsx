@@ -1,14 +1,15 @@
 import React from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Map as MapIcon, Database, Calendar, Upload, ShieldAlert, MousePointer2, Info } from 'lucide-react';
+import { X, Map as MapIcon, Database, Calendar, RefreshCw, ShieldAlert, MousePointer2, Info, Sparkles, Cloud } from 'lucide-react';
 
 interface HelpModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onStartTour: () => void;
 }
 
-export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
+export default function HelpModal({ isOpen, onClose, onStartTour }: HelpModalProps) {
   const steps = [
     {
       icon: <MapIcon className="w-5 h-5 text-blue-600" />,
@@ -26,9 +27,9 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
       text: "Кнопка 'База данных' открывает полный список гидропостов с графиками уровней воды и документами."
     },
     {
-      icon: <Upload className="w-5 h-5 text-orange-600" />,
-      title: "Импорт данных",
-      text: "В режиме администратора можно загружать Excel-файлы. Используйте кнопки 'Шаблон', чтобы скачать пример правильного заполнения."
+      icon: <Cloud className="w-5 h-5 text-amber-600" />,
+      title: "Обновление данных",
+      text: "Нажмите 'Обновить данные' для загрузки актуальных наблюдений из Яндекс.Диска. Загрузите заполненный шаблон в папку."
     },
     {
       icon: <ShieldAlert className="w-5 h-5 text-red-600" />,
@@ -36,6 +37,14 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
       text: "Красные маркеры на карте указывают на заторы. Гидропосты подсвечиваются красным при достижении критических уровней."
     }
   ];
+
+  const handleStartTour = () => {
+    onClose();
+    // Small delay so the modal has time to close before tour starts
+    setTimeout(() => {
+      onStartTour();
+    }, 350);
+  };
 
   if (!isOpen) return null;
 
@@ -69,8 +78,18 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
               <X className="w-8 h-8" />
             </button>
           </div>
-
           <div className="p-8 overflow-y-auto custom-scrollbar">
+            <div className="mt-2 p-3 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[2rem] text-white shadow-xl shadow-blue-100">
+              <div className="flex items-center gap-4">
+                <div className="bg-white/20 p-2 rounded-full">
+                  <Info className="w-5 h-5 text-white" />
+                </div>
+                <p className="text-sm font-bold leading-relaxed">
+                  Кликните по любому населенному пункту на карте, чтобы открыть детальную статистику по уровню воды и маршруту ледохода.
+                </p>
+              </div>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {steps.map((step, idx) => (
                 <div key={idx} className="flex gap-5 p-6 rounded-3xl border border-slate-100 bg-slate-50/30 hover:bg-white hover:shadow-xl hover:shadow-slate-100 transition-all duration-300">
@@ -87,19 +106,19 @@ export default function HelpModal({ isOpen, onClose }: HelpModalProps) {
               ))}
             </div>
 
-            <div className="mt-8 p-6 bg-gradient-to-r from-blue-600 to-indigo-600 rounded-[2rem] text-white shadow-xl shadow-blue-100">
-              <div className="flex items-center gap-4">
-                <div className="bg-white/20 p-2 rounded-full">
-                  <Info className="w-5 h-5 text-white" />
-                </div>
-                <p className="text-sm font-bold leading-relaxed">
-                  Кликните по любому населенному пункту на карте, чтобы открыть детальную статистику по уровню воды и маршруту ледохода.
-                </p>
-              </div>
-            </div>
+
           </div>
 
-          <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-end">
+          <div className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-4">
+            {/* Interactive Tour Button */}
+            <button
+              onClick={handleStartTour}
+              className="px-6 py-4 bg-gradient-to-r from-violet-600 to-indigo-600 text-white font-bold rounded-2xl hover:from-violet-700 hover:to-indigo-700 transition-all shadow-xl shadow-violet-200 active:scale-95 flex items-center gap-2.5 text-sm"
+            >
+              <Sparkles className="w-5 h-5" />
+              Интерактивная экскурсия
+            </button>
+
             <button
               onClick={onClose}
               className="px-10 py-4 bg-slate-800 text-white font-black rounded-2xl hover:bg-slate-700 transition-all shadow-xl shadow-slate-200 active:scale-95 text-lg"

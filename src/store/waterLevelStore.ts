@@ -24,7 +24,6 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
   isLoaded: false,
   setStations: (stations) => set({ stations }),
   loadData: async () => {
-    if (get().isLoaded) return;
     try {
       const res = await fetch('/water_levels_db.json');
       const data = await res.json();
