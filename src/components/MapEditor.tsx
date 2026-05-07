@@ -1,8 +1,8 @@
-import React, { useMemo, useState, useRef, useEffect } from 'react';
-import Map, { Source, Layer, Marker, NavigationControl, Popup, useMap } from '@vis.gl/react-maplibre';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource } from '../utils/mapUtils';
-import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop } from 'lucide-react';
+import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera } from 'lucide-react';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
 import { SETTLEMENTS } from '../utils/riverData';
@@ -11,6 +11,20 @@ import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 
 type MapType = 'satellite' | 'vector' | 'basin' | 'local';
+type RiskLevel = 'normal' | 'watch' | 'warning' | 'danger';
+const WATER_RISE_ALERT_CM = 10;
+const RISK_LABELS: Record<RiskLevel, string> = {
+  normal: 'Норма',
+  watch: 'Норма',
+  warning: 'Повышенное внимание',
+  danger: 'Критическая угроза',
+};
+
+type RiskNotification = {
+  id: number;
+  message: string;
+  level: RiskLevel;
+};
 
 const MAP_STYLES: Record<string, any> = {
   'local': {
@@ -35,20 +49,37 @@ const MAP_STYLES: Record<string, any> = {
 };
 
 // Memoized Marker Components for performance
-const StationMarker = React.memo(({ stn, level, onSelect }: { stn: any, level: number, onSelect: (stn: any) => void }) => {
+const StationMarker = React.memo(({
+  stn,
+  level,
+  onSelect,
+  riskLevel = 'normal',
+}: {
+  stn: any,
+  level: number,
+  onSelect: (stn: any) => void,
+  riskLevel?: RiskLevel,
+}) => {
   let colorClass = 'bg-green-500';
   let textClass = 'text-green-800';
   let borderClass = 'border-green-600';
   
-  if (stn.criticalLevel) {
-     const diff = stn.criticalLevel - level;
-     if (diff < 0) { colorClass = 'bg-red-600'; textClass = 'text-white'; borderClass = 'border-red-800'; }
-     else if (diff < 100) { colorClass = 'bg-orange-500'; textClass = 'text-white'; borderClass = 'border-orange-700'; }
-     else if (diff < 300) { colorClass = 'bg-yellow-400'; textClass = 'text-yellow-900'; borderClass = 'border-yellow-600'; }
+  if (riskLevel === 'danger') {
+    colorClass = 'bg-red-600';
+    textClass = 'text-white';
+    borderClass = 'border-red-800';
+  } else if (riskLevel === 'warning') {
+    colorClass = 'bg-yellow-400';
+    textClass = 'text-yellow-900';
+    borderClass = 'border-yellow-600';
+  } else if (riskLevel === 'watch') {
+    colorClass = 'bg-green-500';
+    textClass = 'text-green-800';
+    borderClass = 'border-green-600';
   }
 
   return (
-    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="bottom-left">
+    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="center">
       <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 cursor-pointer hover:opacity-100 hover:scale-110 transition-transform`}
            onClick={(e) => {
              e.stopPropagation();
@@ -61,18 +92,46 @@ const StationMarker = React.memo(({ stn, level, onSelect }: { stn: any, level: n
   );
 });
 
-const SettlementMarker = React.memo(({ settlement, onSelect }: { settlement: any, onSelect: (s: any) => void }) => {
+const SettlementMarker = React.memo(({
+  settlement,
+  onSelect,
+  riskLevel = 'normal',
+}: {
+  settlement: any,
+  onSelect: (s: any) => void,
+  riskLevel?: RiskLevel,
+}) => {
   return (
     <Marker longitude={settlement.coords[0]} latitude={settlement.coords[1]} anchor="center">
        <div 
-         className="flex items-center gap-1 group cursor-pointer hover:scale-110 transition-transform"
+        className="flex items-center gap-1 group cursor-pointer hover:scale-110 transition-transform"
          onClick={(e) => {
            e.stopPropagation();
            onSelect(settlement);
          }}
        >
-         <CircleDot className={`w-3 h-3 ${settlement.isMajor ? 'text-white fill-slate-800 scale-125' : 'text-slate-200 fill-slate-600'} drop-shadow`} />
-         <span className={`font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-nowrap px-1 rounded-sm backdrop-blur-[2px] ${settlement.isMajor ? 'text-white bg-slate-900/60 text-xs tracking-wide' : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'}`}>
+         <CircleDot className={`w-3 h-3 ${
+           riskLevel === 'danger'
+             ? 'text-red-100 fill-red-500 scale-125'
+             : riskLevel === 'warning'
+               ? 'text-yellow-100 fill-yellow-500 scale-125'
+               : riskLevel === 'watch'
+                 ? 'text-slate-200 fill-slate-600'
+                 : settlement.isMajor
+                   ? 'text-white fill-slate-800 scale-125'
+                   : 'text-slate-200 fill-slate-600'
+         } drop-shadow`} />
+         <span className={`font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-nowrap px-1 rounded-sm backdrop-blur-[2px] ${
+           riskLevel === 'danger'
+             ? 'text-red-50 bg-red-700/75 text-xs ring-1 ring-red-300/80 shadow-[0_0_12px_rgba(239,68,68,0.8)] animate-pulse'
+             : riskLevel === 'warning'
+               ? 'text-yellow-50 bg-yellow-700/75 text-xs ring-1 ring-yellow-300/80'
+               : riskLevel === 'watch'
+                 ? 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
+                 : settlement.isMajor
+                   ? 'text-white bg-slate-900/60 text-xs tracking-wide'
+                   : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
+         }`}>
            {settlement.name}
          </span>
        </div>
@@ -81,9 +140,17 @@ const SettlementMarker = React.memo(({ settlement, onSelect }: { settlement: any
 });
 
 export default function MapEditor() {
-  const { getCurrentObservationData, jams, draftJamCoords, setDraftJamCoords, getSectionSpeeds } = useIceStore();
-  const currentData = getCurrentObservationData();
-  const sectionSpeeds = getSectionSpeeds();
+  const {
+    getCurrentObservationData,
+    jams,
+    draftJamCoords,
+    setDraftJamCoords,
+    getSectionSpeeds,
+    observations,
+    currentDate
+  } = useIceStore();
+  const currentData = useMemo(() => getCurrentObservationData(), [getCurrentObservationData, observations, currentDate]);
+  const sectionSpeeds = useMemo(() => getSectionSpeeds(), [getSectionSpeeds, observations]);
   const { stations } = useWaterLevelStore();
   const { 
     isAdmin, pickMode, draftUpper, draftLower, 
@@ -103,22 +170,36 @@ export default function MapEditor() {
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
   const [mapBounds, setMapBounds] = useState<[number, number, number, number] | null>(null);
+  const [riskNotifications, setRiskNotifications] = useState<RiskNotification[]>([]);
+  const previousSettlementRiskRef = useRef<globalThis.Map<string, number>>(new globalThis.Map<string, number>());
+  const hasAskedNotificationPermissionRef = useRef(false);
 
   // Print Crop State
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [cropStart, setCropStart] = useState<{x: number, y: number} | null>(null);
   const [customCropRect, setCustomCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
+  const mapRootRef = useRef<HTMLDivElement | null>(null);
+
+  const getRelativePoint = (e: React.MouseEvent) => {
+    const rect = mapRootRef.current?.getBoundingClientRect();
+    if (!rect) return { x: e.clientX, y: e.clientY };
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+    };
+  };
 
   const handleCropMouseDown = (e: React.MouseEvent) => {
-    setCropStart({ x: e.clientX, y: e.clientY });
+    setCropStart(getRelativePoint(e));
   };
   const handleCropMouseMove = (e: React.MouseEvent) => {
     if (cropStart && isDrawingMode) {
+      const pt = getRelativePoint(e);
       setCustomCropRect({
-        left: Math.min(cropStart.x, e.clientX),
-        top: Math.min(cropStart.y, e.clientY),
-        width: Math.abs(e.clientX - cropStart.x),
-        height: Math.abs(e.clientY - cropStart.y)
+        left: Math.min(cropStart.x, pt.x),
+        top: Math.min(cropStart.y, pt.y),
+        width: Math.abs(pt.x - cropStart.x),
+        height: Math.abs(pt.y - cropStart.y)
       });
     }
   };
@@ -129,60 +210,161 @@ export default function MapEditor() {
     }
   };
 
-  const handleExecutePrint = () => {
-    if (!mapRef.current) return;
-    
-    let maskEl = document.getElementById('print-custom-mask');
-    if (!maskEl || maskEl.style.display === 'none') {
-      maskEl = document.getElementById('print-default-mask');
-    }
-    
-    let originalView: any = null;
-    const map = mapRef.current.getMap();
-    
-    if (maskEl) {
-      const rect = maskEl.getBoundingClientRect();
-      originalView = {
-        center: map.getCenter(),
-        zoom: map.getZoom(),
-        pitch: map.getPitch(),
-        bearing: map.getBearing()
+  const waitForMapRender = (map: any): Promise<void> =>
+    new Promise((resolve) => {
+      let resolved = false;
+      const done = () => {
+        if (resolved) return;
+        resolved = true;
+        resolve();
       };
-      
-      const p1 = map.unproject([rect.left, rect.top]);
-      const p2 = map.unproject([rect.right, rect.bottom]);
-      
-      const minLng = Math.min(p1.lng, p2.lng);
-      const maxLng = Math.max(p1.lng, p2.lng);
-      const minLat = Math.min(p1.lat, p2.lat);
-      const maxLat = Math.max(p1.lat, p2.lat);
-      
-      // Zoom map to strictly fit the selected geographic bounds
-      map.fitBounds([ [minLng, minLat], [maxLng, maxLat] ], { padding: 0, duration: 0 });
+      map.once('idle', done);
+      window.setTimeout(done, 700);
+    });
+
+  const getCropArea = () => {
+    if (!mapRootRef.current) return null;
+    const containerRect = mapRootRef.current.getBoundingClientRect();
+    
+    if (customCropRect && customCropRect.width > 20 && customCropRect.height > 20) {
+      return customCropRect;
     }
     
-    if (printType === 'bw') {
-      document.body.classList.add('bw-print-mode');
+    const defaultW = Math.min(containerRect.width * 0.85, 1200);
+    const defaultH = Math.min(containerRect.height * 0.75, 800);
+    return {
+      left: (containerRect.width - defaultW) / 2,
+      top: (containerRect.height - defaultH) / 2,
+      width: defaultW,
+      height: defaultH,
+    };
+  };
+
+  const captureSelectedArea = async (): Promise<string | null> => {
+    if (!mapRef.current || !mapRootRef.current) return null;
+
+    const map = mapRef.current.getMap();
+    const sourceCanvas = map.getCanvas();
+    const containerRect = mapRootRef.current.getBoundingClientRect();
+    const crop = getCropArea();
+    if (!crop) return null;
+    if (sourceCanvas.width < 2 || sourceCanvas.height < 2) return null;
+
+    const scaleX = sourceCanvas.width / containerRect.width;
+    const scaleY = sourceCanvas.height / containerRect.height;
+    const srcX = Math.max(0, Math.round(crop.left * scaleX));
+    const srcY = Math.max(0, Math.round(crop.top * scaleY));
+    const srcW = Math.min(Math.round(crop.width * scaleX), sourceCanvas.width - srcX);
+    const srcH = Math.min(Math.round(crop.height * scaleY), sourceCanvas.height - srcY);
+    if (srcW < 10 || srcH < 10) return null;
+
+    const outCanvas = document.createElement('canvas');
+    outCanvas.width = srcW;
+    outCanvas.height = srcH;
+    const ctx = outCanvas.getContext('2d');
+    if (!ctx) return null;
+
+    const loadImageFromDataUrl = (dataUrl: string) =>
+      new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = reject;
+        img.src = dataUrl;
+      });
+
+    let lastFullFrame: string | null = null;
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+      map.triggerRepaint();
+      await waitForMapRender(map);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+
+      try {
+        const fullFrame = sourceCanvas.toDataURL('image/png');
+        if (!fullFrame || fullFrame.length <= 1000) {
+          await new Promise((resolve) => window.setTimeout(resolve, 180));
+          continue;
+        }
+        lastFullFrame = fullFrame;
+
+        const frameImage = await loadImageFromDataUrl(fullFrame);
+        ctx.clearRect(0, 0, srcW, srcH);
+        ctx.drawImage(frameImage, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH);
+        const dataUrl = outCanvas.toDataURL('image/png');
+        if (dataUrl && dataUrl.length > 1000) return dataUrl;
+      } catch {
+        // SecurityError can happen on tainted canvases, try again after a short delay.
+      }
+
+      await new Promise((resolve) => window.setTimeout(resolve, 180));
     }
+
+    // Fallback: return full frame if crop failed but frame capture worked.
+    return lastFullFrame;
+  };
+
+  const handleExecutePrint = async () => {
+    const dataUrl = await captureSelectedArea();
     
-    // Wait 500ms for tiles to load at the new zoom level
-    setTimeout(() => {
-      window.print();
-      
-      if (printType === 'bw') {
-        document.body.classList.remove('bw-print-mode');
-      }
-      
-      // Restore previous map view
-      if (originalView) {
-        map.jumpTo(originalView);
-      }
-      
-      setIsPrintCropMode(false);
-      setCustomCropRect(null);
-      setIsDrawingMode(false);
-      setIsSidebarOpen(true);
-    }, 500);
+    if (!dataUrl) {
+      alert('Не удалось захватить область. Попробуйте тип карты "Вектор" или "Офлайн".');
+      return;
+    }
+
+    const bwStyle = printType === 'bw' ? 'filter: grayscale(100%) contrast(110%);' : '';
+    
+    const printWindow = window.open('', '_blank', 'width=1000,height=800');
+    if (!printWindow) {
+      alert('Браузер заблокировал всплывающее окно.');
+      return;
+    }
+
+    printWindow.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Печать карты</title>
+  <style>
+    * { margin: 0; padding: 0; }
+    body { display: flex; justify-content: center; align-items: center; min-height: 100vh; background: white; }
+    img { max-width: 100%; max-height: 100vh; ${bwStyle} }
+    @media print {
+      @page { margin: 5mm; }
+      img { max-width: 100%; height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <img src="${dataUrl}" onload="setTimeout(function(){window.print();},100);" />
+</body>
+</html>`);
+    printWindow.document.close();
+    
+    setIsPrintCropMode(false);
+    setCustomCropRect(null);
+    setIsDrawingMode(false);
+    setIsSidebarOpen(true);
+  };
+
+  const downloadMapScreenshot = async () => {
+    const dataUrl = await captureSelectedArea();
+    
+    if (!dataUrl) {
+      alert('Не удалось создать скриншот. Спутниковые тайлы имеют CORS-ограничения.\n\nРешение: переключите тип карты на "Вектор" или "Офлайн".');
+      return;
+    }
+
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    link.download = `map-screenshot-${stamp}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    
+    setIsPrintCropMode(false);
+    setCustomCropRect(null);
+    setIsDrawingMode(false);
+    setIsSidebarOpen(true);
   };
 
   const handleCancelPrint = () => {
@@ -226,6 +408,144 @@ export default function MapEditor() {
     );
     return generateGeoJSONSource(segments);
   }, [currentData]);
+
+  const normalizeName = (name: string) => name.toLowerCase().replace(/ё/g, 'е').trim();
+  const riskFromScore = (score: number): RiskLevel => {
+    if (score >= 3) return 'danger';
+    if (score >= 2) return 'warning';
+    return 'normal';
+  };
+
+  const toRadians = (deg: number) => deg * (Math.PI / 180);
+  const distanceKm = (a: [number, number], b: [number, number]) => {
+    const earthRadiusKm = 6371;
+    const dLat = toRadians(b[1] - a[1]);
+    const dLng = toRadians(b[0] - a[0]);
+    const lat1 = toRadians(a[1]);
+    const lat2 = toRadians(b[1]);
+    const h =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+    return 2 * earthRadiusKm * Math.asin(Math.sqrt(h));
+  };
+
+  const getJamRiskScore = (point: [number, number], activeJams: IceJam[]) => {
+    let score = 0;
+    for (const jam of activeJams) {
+      const km = distanceKm(point, jam.coords);
+      if (km > 45) continue;
+      if (jam.severity === 'high') score = Math.max(score, 3);
+      else if (jam.severity === 'medium') score = Math.max(score, 2);
+      else score = Math.max(score, 1);
+    }
+    return score;
+  };
+
+  const getLevelWithFallback = (stn: any, date: Date): number | null => {
+    const directKey = date.toISOString().substring(0, 10);
+    if (stn.levels[directKey] !== undefined) return stn.levels[directKey];
+
+    for (let i = 1; i <= 5; i++) {
+      const probe = new Date(date);
+      probe.setDate(probe.getDate() - i);
+      const key = probe.toISOString().substring(0, 10);
+      if (stn.levels[key] !== undefined) return stn.levels[key];
+    }
+    return null;
+  };
+
+  const activeJams = useMemo(() => jams.filter((jam) => jam.status === 'active'), [jams]);
+
+  const stationRiskByName = useMemo(() => {
+    const targetDate = currentData?.date ? new Date(currentData.date) : new Date();
+    const prevDate = new Date(targetDate);
+    prevDate.setDate(prevDate.getDate() - 3);
+    const riskMap = new globalThis.Map<string, number>();
+
+    for (const stn of stations) {
+      if (!stn.levels || Object.keys(stn.levels).length === 0 || !stn.coords) continue;
+      const currentLevel = getLevelWithFallback(stn, targetDate);
+      const prevLevel = getLevelWithFallback(stn, prevDate);
+      if (currentLevel === null) continue;
+
+      let riskScore = 0;
+      const critical = Number(stn.criticalLevel);
+      if (Number.isFinite(critical) && critical > 0) {
+        const diff = critical - currentLevel;
+        if (diff <= 150) riskScore = Math.max(riskScore, 3);
+        else if (diff <= 300) riskScore = Math.max(riskScore, 2);
+      }
+
+      if (prevLevel !== null) {
+        const rise = currentLevel - prevLevel;
+        if (rise >= WATER_RISE_ALERT_CM * 2.5) riskScore = Math.max(riskScore, 3);
+        else if (rise >= WATER_RISE_ALERT_CM) riskScore = Math.max(riskScore, 2);
+      }
+
+      riskScore = Math.max(riskScore, getJamRiskScore(stn.coords, activeJams));
+      riskMap.set(normalizeName(stn.name), riskScore);
+    }
+
+    return riskMap;
+  }, [stations, currentData?.date, activeJams]);
+
+  const settlementRiskByName = useMemo(() => {
+    const riskMap = new globalThis.Map<string, number>();
+    for (const settlement of SETTLEMENTS) {
+      const key = normalizeName(settlement.name);
+      const stationRisk = stationRiskByName.get(key) ?? 0;
+      const jamRisk = getJamRiskScore(settlement.coords, activeJams);
+      riskMap.set(key, Math.max(stationRisk, jamRisk));
+    }
+    return riskMap;
+  }, [activeJams, stationRiskByName]);
+
+  useEffect(() => {
+    const pushInAppNotification = (message: string, level: RiskLevel) => {
+      const id = Date.now() + Math.floor(Math.random() * 1000);
+      setRiskNotifications((prev) => [{ id, message, level }, ...prev].slice(0, 4));
+      window.setTimeout(() => {
+        setRiskNotifications((prev) => prev.filter((n) => n.id !== id));
+      }, 9000);
+    };
+
+    const toRiskLevel = (score: number): RiskLevel => {
+      if (score >= 3) return 'danger';
+      if (score >= 2) return 'warning';
+      return 'normal';
+    };
+
+    const previous = previousSettlementRiskRef.current;
+    const escalated: { name: string; score: number }[] = [];
+    for (const settlement of SETTLEMENTS) {
+      const key = normalizeName(settlement.name);
+      const currentScore = settlementRiskByName.get(key) ?? 0;
+      const previousScore = previous.get(key) ?? 0;
+      if (currentScore > previousScore && currentScore >= 2) {
+        escalated.push({ name: settlement.name, score: currentScore });
+      }
+    }
+
+    if (escalated.length > 0) {
+      for (const item of escalated.slice(0, 3)) {
+        const level = toRiskLevel(item.score);
+        const levelLabel = RISK_LABELS[level];
+        const message = `${item.name} (ожидается: ${levelLabel})`;
+        pushInAppNotification(message, level);
+
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          new Notification('Оповещение по ледоходу', { body: message });
+        }
+      }
+    }
+
+    if (typeof window !== 'undefined' && 'Notification' in window && !hasAskedNotificationPermissionRef.current && Notification.permission === 'default') {
+      hasAskedNotificationPermissionRef.current = true;
+      Notification.requestPermission().catch(() => {});
+    }
+
+    previousSettlementRiskRef.current = new globalThis.Map(settlementRiskByName);
+  }, [settlementRiskByName]);
 
   useEffect(() => {
     return () => {
@@ -294,9 +614,50 @@ export default function MapEditor() {
   };
 
   const cursorType = pickMode !== 'none' ? 'crosshair' : (hoverInfo ? "pointer" : (isAdmin ? "crosshair" : "grab"));
+  const handleStationSelect = useCallback((s: any) => {
+    const existingSettlement = SETTLEMENTS.find(settle => settle.name === s.name) || {
+      id: s.id, name: s.name, coords: s.coords
+    };
+    setSelectedSettlement(existingSettlement);
+  }, [setSelectedSettlement]);
+
+  const visibleStations = useMemo(() => {
+    const targetDate = currentData?.date ? new Date(currentData.date) : new Date();
+    return stations
+      .filter(stn => {
+        if (!stn.coords || viewState.zoom < 7.2) return false;
+        if (!mapBounds) return true;
+        const [lng, lat] = stn.coords;
+        return lng >= mapBounds[0] && lat >= mapBounds[1] && lng <= mapBounds[2] && lat <= mapBounds[3];
+      })
+      .map(stn => {
+        const level = Object.keys(stn.levels).length > 0 ? getLevelWithFallback(stn, targetDate) : null;
+        if (level === null) return null;
+        return {
+          stn,
+          level,
+          riskLevel: riskFromScore(stationRiskByName.get(normalizeName(stn.name)) ?? 0),
+        };
+      })
+      .filter(Boolean) as { stn: any; level: number; riskLevel: RiskLevel }[];
+  }, [stations, viewState.zoom, mapBounds, currentData?.date, stationRiskByName]);
+
+  const visibleSettlements = useMemo(() => {
+    return SETTLEMENTS
+      .filter(s => {
+        if (viewState.zoom < 6.8 && !s.isMajor) return false;
+        if (!mapBounds) return true;
+        const [lng, lat] = s.coords;
+        return lng >= mapBounds[0] && lat >= mapBounds[1] && lng <= mapBounds[2] && lat <= mapBounds[3];
+      })
+      .map(settlement => ({
+        settlement,
+        riskLevel: riskFromScore(settlementRiskByName.get(normalizeName(settlement.name)) ?? 0),
+      }));
+  }, [viewState.zoom, mapBounds, settlementRiskByName]);
 
   return (
-    <div className="w-full h-full relative group">
+    <div ref={mapRootRef} className="w-full h-full relative group">
       {/* Print Crop Mode Overlay */}
       {isPrintCropMode && (
         <div className="absolute inset-0 z-[100] pointer-events-none print-hide overflow-hidden">
@@ -363,6 +724,12 @@ export default function MapEditor() {
               <X className="w-4 h-4" /> Отмена
             </button>
             <button
+              onClick={downloadMapScreenshot}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-emerald-500/30"
+            >
+              <Camera className="w-4 h-4" /> PNG
+            </button>
+            <button
               onClick={handleExecutePrint}
               disabled={isDrawingMode && !customCropRect}
               className="bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 disabled:cursor-not-allowed text-white px-6 py-2 rounded-xl font-bold transition flex items-center gap-2 shadow-lg shadow-blue-500/30"
@@ -420,7 +787,7 @@ export default function MapEditor() {
         onClick={onMapClick}
         onMouseMove={onMouseMove}
         onMouseLeave={() => setHoverInfo(null)}
-        preserveDrawingBuffer={true}
+        canvasContextAttributes={{ preserveDrawingBuffer: true }}
       >
         <Source id="yakutia-bounds" type="geojson" data="/yakutia_boundaries.json">
           <Layer
@@ -586,41 +953,22 @@ export default function MapEditor() {
         })}
 
         {/* Water Level Stations (with Viewport Filtering) */}
-        {stations.filter(stn => {
-           if (!stn.coords || viewState.zoom < 7.2) return false;
-           if (!mapBounds) return true;
-           const [lng, lat] = stn.coords;
-           return lng >= mapBounds[0] && lat >= mapBounds[1] && lng <= mapBounds[2] && lat <= mapBounds[3];
-        }).map(stn => {
-           const dateStr = currentData?.date ? currentData.date.substring(0, 10) : new Date().toISOString().substring(0, 10);
-           const level = Object.keys(stn.levels).length > 0 ? (stn.levels[dateStr] ?? Object.values(stn.levels).pop()) : null;
-           if (level === null) return null;
-
-           return (
-             <StationMarker 
-               key={stn.id} 
-               stn={stn} 
-               level={level} 
-               onSelect={(s) => {
-                  const existingSettlement = SETTLEMENTS.find(settle => settle.name === s.name) || {
-                    id: s.id, name: s.name, coords: s.coords
-                  };
-                  setSelectedSettlement(existingSettlement);
-               }} 
-             />
-           );
-        })}
+        {visibleStations.map(({ stn, level, riskLevel }) => (
+          <StationMarker 
+            key={stn.id} 
+            stn={stn} 
+            level={level} 
+            riskLevel={riskLevel}
+            onSelect={handleStationSelect} 
+          />
+        ))}
 
         {/* Render Settlements (with Viewport Filtering) */}
-        {SETTLEMENTS.filter(s => {
-           if (viewState.zoom < 6.8 && !s.isMajor) return false;
-           if (!mapBounds) return true;
-           const [lng, lat] = s.coords;
-           return lng >= mapBounds[0] && lat >= mapBounds[1] && lng <= mapBounds[2] && lat <= mapBounds[3];
-        }).map(settlement => (
+        {visibleSettlements.map(({ settlement, riskLevel }) => (
           <SettlementMarker 
             key={settlement.id} 
             settlement={settlement} 
+            riskLevel={riskLevel}
             onSelect={setSelectedSettlement} 
           />
         ))}
@@ -697,6 +1045,25 @@ export default function MapEditor() {
           Разработано в МинГОиОБЖн
         </div>
       </div>
+
+      {riskNotifications.length > 0 && (
+        <div className="absolute top-16 left-3 z-[130] flex flex-col gap-2 pointer-events-none">
+          {riskNotifications.map((n) => (
+            <div
+              key={n.id}
+              className={`text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[260px] ${
+                n.level === 'danger'
+                  ? 'bg-red-600/95 text-white border-red-200/70'
+                  : n.level === 'warning'
+                    ? 'bg-yellow-300/95 text-yellow-950 border-yellow-100'
+                    : 'bg-slate-900/90 text-white border-white/20'
+              }`}
+            >
+              {n.message}
+            </div>
+          ))}
+        </div>
+      )}
 
       <style>{`
         .maplibregl-ctrl-bottom-right {

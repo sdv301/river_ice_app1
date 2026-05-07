@@ -1,7 +1,11 @@
 import { create } from 'zustand';
 import type { IceObservation, IceJam } from '../types';
 import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/mapUtils';
+import { nearestPointOnLine, point } from '@turf/turf';
+import { lenaRiverFeature } from '../utils/riverData';
 import { fetchAllIceData } from '../utils/yandexDisk';
+
+export const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 
 export const ARCHIVE_2025: IceObservation[] = [
   {
@@ -63,6 +67,7 @@ interface IceStore {
   lastSyncTime: string | null;
   syncError: string | null;
   syncFileCount: number;
+  lastDiskModified: string | null;
   loadYearData: (year: number) => void;
   setCurrentDate: (date: string) => void;
   setDraftJamCoords: (coords: [number, number] | null) => void;
@@ -71,9 +76,22 @@ interface IceStore {
   resolveJam: (id: string) => void;
   removeJam: (id: string) => void;
   fetchFromYandexDisk: () => Promise<void>;
+  checkYandexForUpdates: () => Promise<boolean>;
   getCurrentObservationData: () => any;
   getDailySpeed: () => any;
   getSectionSpeeds: () => any[];
+  getCustomSectionSpeed: (
+    start: { name: string; coords: [number, number] },
+    end: { name: string; coords: [number, number] }
+  ) => {
+    speed: number;
+    distanceKm: number;
+    startLoc: string;
+    endLoc: string;
+    startDate: string;
+    endDate: string;
+    days: number;
+  } | null;
 }
 
 export const useIceStore = create<IceStore>((set, get) => ({
@@ -85,6 +103,7 @@ export const useIceStore = create<IceStore>((set, get) => ({
   lastSyncTime: null,
   syncError: null,
   syncFileCount: 0,
+  lastDiskModified: null,
 
   setCurrentDate: (date: string) => set({ currentDate: date }),
   
@@ -130,6 +149,7 @@ export const useIceStore = create<IceStore>((set, get) => ({
           isLoading: false,
           lastSyncTime: new Date().toISOString(),
           syncFileCount: result.fileCount,
+          lastDiskModified: result.latestModified,
           syncError: result.errors.length > 0 ? result.errors.join('; ') : null,
         }));
 
@@ -143,9 +163,12 @@ export const useIceStore = create<IceStore>((set, get) => ({
           isLoading: false,
           lastSyncTime: new Date().toISOString(),
           syncFileCount: result.fileCount,
+          lastDiskModified: result.latestModified,
           syncError: result.errors.length > 0 
             ? result.errors.join('; ') 
-            : 'Файлы не найдены или не содержат данных',
+            : result.hasNewFiles
+              ? 'Файлы не содержат корректных данных'
+              : 'Новых файлов на Яндекс.Диске нет',
         });
       }
     } catch (e: any) {
@@ -153,6 +176,54 @@ export const useIceStore = create<IceStore>((set, get) => ({
         isLoading: false,
         syncError: e.message || 'Ошибка при загрузке данных',
       });
+    }
+  },
+
+  checkYandexForUpdates: async () => {
+    const { lastDiskModified } = get();
+    set({ isLoading: true, syncError: null });
+    try {
+      const result = await fetchAllIceData({ onlyNewerThan: lastDiskModified });
+      if (!result.hasNewFiles) {
+        set({
+          isLoading: false,
+          lastSyncTime: new Date().toISOString(),
+          syncFileCount: 0,
+          syncError: null,
+          lastDiskModified: result.latestModified ?? lastDiskModified,
+        });
+        return false;
+      }
+
+      const newObs: IceObservation[] = result.observations.map((obs, idx) => ({
+        id: `yd-${Date.now()}-${idx}`,
+        date: obs.date,
+        upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+        lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+        locationName: obs.locationName,
+        notes: obs.notes,
+      }));
+
+      set({
+        observations: newObs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+        isLoading: false,
+        lastSyncTime: new Date().toISOString(),
+        syncFileCount: result.fileCount,
+        syncError: result.errors.length > 0 ? result.errors.join('; ') : null,
+        lastDiskModified: result.latestModified ?? lastDiskModified,
+      });
+
+      if (newObs.length > 0) {
+        const sorted = [...newObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        set({ currentDate: sorted[0].date });
+      }
+      return true;
+    } catch (e: any) {
+      set({
+        isLoading: false,
+        syncError: e.message || 'Ошибка авто-проверки Яндекс.Диска',
+      });
+      return false;
     }
   },
 
@@ -295,5 +366,70 @@ export const useIceStore = create<IceStore>((set, get) => ({
       }
     }
     return speeds.reverse();
+  },
+
+  getCustomSectionSpeed(start, end) {
+    const { observations } = get();
+    if (!start || !end || observations.length < 2) return null;
+
+    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const distanceKm = getRiverDistance(start.coords, end.coords);
+    if (!Number.isFinite(distanceKm) || distanceKm <= 0.01) return null;
+
+    const getRiverLocationKm = (coords: [number, number]) => {
+      const snapped = nearestPointOnLine(lenaRiverFeature, point(coords), { units: 'kilometers' });
+      return Number(snapped.properties.location ?? 0);
+    };
+
+    const startLocationKm = getRiverLocationKm(start.coords);
+    const endLocationKm = getRiverLocationKm(end.coords);
+    if (!Number.isFinite(startLocationKm) || !Number.isFinite(endLocationKm)) return null;
+
+    const findCrossingTime = (targetLocationKm: number): string | null => {
+      for (let i = 0; i < sorted.length - 1; i++) {
+        const obs1 = sorted[i];
+        const obs2 = sorted[i + 1];
+        const loc1 = getRiverLocationKm(obs1.upperEdgeCoords);
+        const loc2 = getRiverLocationKm(obs2.upperEdgeCoords);
+        if (!Number.isFinite(loc1) || !Number.isFinite(loc2)) continue;
+
+        const minLoc = Math.min(loc1, loc2);
+        const maxLoc = Math.max(loc1, loc2);
+        if (targetLocationKm < minLoc || targetLocationKm > maxLoc) continue;
+
+        const t1 = new Date(obs1.date).getTime();
+        const t2 = new Date(obs2.date).getTime();
+        if (!Number.isFinite(t1) || !Number.isFinite(t2) || t2 <= t1) continue;
+
+        if (Math.abs(loc2 - loc1) < 0.0001) {
+          return new Date(t1).toISOString();
+        }
+
+        const ratio = (targetLocationKm - loc1) / (loc2 - loc1);
+        const clampedRatio = Math.max(0, Math.min(1, ratio));
+        const crossedAt = t1 + (t2 - t1) * clampedRatio;
+        return new Date(crossedAt).toISOString();
+      }
+      return null;
+    };
+
+    const startCrossingDate = findCrossingTime(startLocationKm);
+    const endCrossingDate = findCrossingTime(endLocationKm);
+    if (!startCrossingDate || !endCrossingDate) return null;
+
+    const t1 = new Date(startCrossingDate).getTime();
+    const t2 = new Date(endCrossingDate).getTime();
+    const days = Math.abs(t2 - t1) / (1000 * 60 * 60 * 24);
+    if (!Number.isFinite(days) || days < 0.01) return null;
+
+    return {
+      speed: distanceKm / days,
+      distanceKm,
+      startLoc: start.name,
+      endLoc: end.name,
+      startDate: startCrossingDate,
+      endDate: endCrossingDate,
+      days
+    };
   }
 }));

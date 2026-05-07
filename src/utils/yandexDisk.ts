@@ -14,6 +14,10 @@ export interface YandexFile {
   file?: string; // direct download link
 }
 
+export interface FetchIceDataOptions {
+  onlyNewerThan?: string | null;
+}
+
 /**
  * List all files in the public Yandex Disk folder
  */
@@ -62,6 +66,65 @@ export async function getDownloadLink(filePath: string): Promise<string> {
  * Download and parse an Excel file from Yandex Disk.
  * Returns raw parsed rows from the first sheet.
  */
+function normalizeHeader(value: unknown): string {
+  return String(value ?? '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreHeaderRow(row: unknown[]): number {
+  const headers = row.map(normalizeHeader);
+  let score = 0;
+  if (headers.some((h) => h.includes('дата') || h === 'date')) score += 2;
+  if (headers.some((h) => h.includes('верх'))) score += 2;
+  if (headers.some((h) => h.includes('ниж') || h.includes('низ'))) score += 2;
+  if (headers.some((h) => h.includes('lng') || h.includes('долгот'))) score += 1;
+  if (headers.some((h) => h.includes('lat') || h.includes('широт'))) score += 1;
+  if (headers.some((h) => h.includes('примеч'))) score += 1;
+  return score;
+}
+
+function parseSheetRows(ws: XLSX.WorkSheet): any[] {
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][];
+  if (rows.length === 0) return [];
+
+  let headerRowIndex = 0;
+  let bestScore = -1;
+  const maxProbe = Math.min(rows.length, 8);
+
+  for (let i = 0; i < maxProbe; i++) {
+    const score = scoreHeaderRow(rows[i]);
+    if (score > bestScore) {
+      bestScore = score;
+      headerRowIndex = i;
+    }
+  }
+
+  const rawHeader = rows[headerRowIndex].map((v) => String(v ?? '').trim());
+  const headerCounts = new Map<string, number>();
+  const header = rawHeader.map((h, idx) => {
+    const base = h || `col_${idx}`;
+    const count = (headerCounts.get(base) ?? 0) + 1;
+    headerCounts.set(base, count);
+    return count === 1 ? base : `${base}__${count}`;
+  });
+  const out: any[] = [];
+  for (let r = headerRowIndex + 1; r < rows.length; r++) {
+    const values = rows[r];
+    const obj: Record<string, unknown> = {};
+    let hasData = false;
+    for (let c = 0; c < header.length; c++) {
+      const key = header[c] || `col_${c}`;
+      const value = values?.[c];
+      if (value !== '' && value !== null && value !== undefined) hasData = true;
+      obj[key] = value;
+    }
+    if (hasData) out.push(obj);
+  }
+  return out;
+}
+
 export async function downloadAndParseExcel(filePath: string): Promise<any[]> {
   const downloadUrl = await getDownloadLink(filePath);
   
@@ -73,26 +136,34 @@ export async function downloadAndParseExcel(filePath: string): Promise<any[]> {
   const arrayBuffer = await response.arrayBuffer();
   const wb = XLSX.read(arrayBuffer, { type: 'array' });
   
-  // Try to find a data sheet (skip instruction sheets)
-  let ws = wb.Sheets[wb.SheetNames[0]];
-  for (const sheetName of wb.SheetNames) {
+  // Try to find a data sheet (skip instruction/reference sheets)
+  const candidateNames = wb.SheetNames.filter((sheetName) => {
     const lowered = sheetName.toLowerCase();
-    if (lowered.includes('данн') || lowered.includes('ледоход') || lowered.includes('data')) {
-      ws = wb.Sheets[sheetName];
-      break;
+    return !lowered.includes('инструк') && !lowered.includes('справ');
+  });
+  const sheetsToTry = candidateNames.length > 0 ? candidateNames : wb.SheetNames;
+
+  let bestRows: any[] = [];
+  for (const sheetName of sheetsToTry) {
+    const rows = parseSheetRows(wb.Sheets[sheetName]);
+    if (rows.length > bestRows.length) {
+      bestRows = rows;
     }
   }
-  
-  return XLSX.utils.sheet_to_json(ws);
+
+  return bestRows;
 }
 
 /**
  * Download all Excel files from Yandex Disk, parse them, 
  * and return consolidated ice observation data.
  */
-export async function fetchAllIceData(): Promise<{
+export async function fetchAllIceData(options: FetchIceDataOptions = {}): Promise<{
   observations: ParsedObservation[];
   fileCount: number;
+  totalFiles: number;
+  hasNewFiles: boolean;
+  latestModified: string | null;
   errors: string[];
 }> {
   const errors: string[] = [];
@@ -102,17 +173,51 @@ export async function fetchAllIceData(): Promise<{
   try {
     files = await listYandexFiles();
   } catch (e: any) {
-    return { observations: [], fileCount: 0, errors: [e.message] };
+    return {
+      observations: [],
+      fileCount: 0,
+      totalFiles: 0,
+      hasNewFiles: false,
+      latestModified: null,
+      errors: [e.message],
+    };
   }
   
   if (files.length === 0) {
-    return { observations: [], fileCount: 0, errors: ['Файлы не найдены в папке Яндекс.Диска'] };
+    return {
+      observations: [],
+      fileCount: 0,
+      totalFiles: 0,
+      hasNewFiles: false,
+      latestModified: null,
+      errors: ['Файлы не найдены в папке Яндекс.Диска'],
+    };
+  }
+
+  const latestModified = files
+    .map((f) => new Date(f.modified).getTime())
+    .filter((t) => !Number.isNaN(t))
+    .sort((a, b) => b - a)[0];
+
+  const filteredFiles = options.onlyNewerThan
+    ? files.filter((f) => new Date(f.modified).getTime() > new Date(options.onlyNewerThan as string).getTime())
+    : files;
+
+  if (filteredFiles.length === 0) {
+    return {
+      observations: [],
+      fileCount: 0,
+      totalFiles: files.length,
+      hasNewFiles: false,
+      latestModified: Number.isFinite(latestModified) ? new Date(latestModified).toISOString() : null,
+      errors: [],
+    };
   }
   
-  for (const file of files) {
+  for (const file of filteredFiles) {
     try {
       const rows = await downloadAndParseExcel(file.path);
-      const parsed = parseIceRows(rows, file.name);
+      const parsed = parseIceRows(rows, file.name, file.modified);
       allObservations.push(...parsed);
     } catch (e: any) {
       errors.push(`${file.name}: ${e.message}`);
@@ -121,7 +226,10 @@ export async function fetchAllIceData(): Promise<{
   
   return {
     observations: allObservations,
-    fileCount: files.length,
+    fileCount: filteredFiles.length,
+    totalFiles: files.length,
+    hasNewFiles: true,
+    latestModified: Number.isFinite(latestModified) ? new Date(latestModified).toISOString() : null,
     errors
   };
 }
@@ -134,6 +242,26 @@ export interface ParsedObservation {
   notes?: string;
   upperSettlement?: string;
   lowerSettlement?: string;
+}
+
+/**
+ * Normalize coordinate pair in WGS-84 (longitude, latitude).
+ * Returns null for invalid values.
+ */
+function normalizeWgs84Coords(lng: number | null, lat: number | null): [number, number] | null {
+  if (lng === null || lat === null) return null;
+
+  // Standard order in app: [longitude, latitude]
+  if (lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90) {
+    return [lng, lat];
+  }
+
+  // Common user mistake: swapped lat/lng
+  if (lat >= -180 && lat <= 180 && lng >= -90 && lng <= 90) {
+    return [lat, lng];
+  }
+
+  return null;
 }
 
 /**
@@ -233,7 +361,7 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
 
 /**
  * Parse Excel rows into ice observation objects.
- * Supports THREE formats:
+ * Supports FOUR formats:
  * 
  * Format 1 (pure geo-coordinates):
  *   Column names containing Lng/Lat or Долгота/Широта for upper/lower edges
@@ -246,14 +374,18 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
  * Format 3 (mixed — settlement name + optional geo override):
  *   Дата, Верхняя кромка, Верх.Lng, Верх.Lat, Нижняя кромка, Низ.Lng, Низ.Lat, Примечания
  *   When coordinates are provided they override the settlement lookup.
+ *
+ * Format 4 (operational "Шаблон 2.xlsx"):
+ *   Река, Пункт, Ледовые явления (примечания),
+ *   Широта/Долгота (нижняя кромка), Широта/Долгота (верхняя кромка),
+ *   расположения на воде
  */
-function parseIceRows(rows: any[], fileName: string): ParsedObservation[] {
+function parseIceRows(rows: any[], fileName: string, fileModified?: string): ParsedObservation[] {
   const observations: ParsedObservation[] = [];
 
   for (const row of rows) {
     try {
       const dateValue = row.Date || row['Дата'] || row.date;
-      if (!dateValue) continue;
 
       let upperCoords: [number, number] | null = null;
       let lowerCoords: [number, number] | null = null;
@@ -265,16 +397,25 @@ function parseIceRows(rows: any[], fileName: string): ParsedObservation[] {
       const upperLng = extractNum(row, ['UpperLng', 'Верх.Долгота (Lng)', 'Верх.Lng', 'upperLng', 'upper_lng']);
       const upperLat = extractNum(row, ['UpperLat', 'Верх.Широта (Lat)', 'Верх.Lat', 'upperLat', 'upper_lat']);
 
-      if (upperLng !== null && upperLat !== null) {
-        upperCoords = [upperLng, upperLat];
-      }
+      upperCoords = normalizeWgs84Coords(upperLng, upperLat);
 
       // ---- Try to extract lower edge coordinates ----
       const lowerLng = extractNum(row, ['LowerLng', 'Низ.Долгота (Lng)', 'Низ.Lng', 'lowerLng', 'lower_lng']);
       const lowerLat = extractNum(row, ['LowerLat', 'Низ.Широта (Lat)', 'Низ.Lat', 'lowerLat', 'lower_lat']);
 
-      if (lowerLng !== null && lowerLat !== null) {
-        lowerCoords = [lowerLng, lowerLat];
+      lowerCoords = normalizeWgs84Coords(lowerLng, lowerLat);
+
+      // Format 4: "Шаблон 2.xlsx" with duplicate headers in one row:
+      // Широта/Долгота (нижняя кромка) + Широта__2/Долгота__2 (верхняя кромка)
+      if (!lowerCoords) {
+        const tplLowerLat = extractNum(row, ['Широта']);
+        const tplLowerLng = extractNum(row, ['Долгота']);
+        lowerCoords = normalizeWgs84Coords(tplLowerLng, tplLowerLat);
+      }
+      if (!upperCoords) {
+        const tplUpperLat = extractNum(row, ['Широта__2']);
+        const tplUpperLng = extractNum(row, ['Долгота__2']);
+        upperCoords = normalizeWgs84Coords(tplUpperLng, tplUpperLat);
       }
 
       // ---- Try to resolve settlement names ----
@@ -300,6 +441,12 @@ function parseIceRows(rows: any[], fileName: string): ParsedObservation[] {
 
       // Build location name
       locationName = extractStr(row, ['Location', 'Участок', 'Участок (описание)']) || '';
+      const riverName = extractStr(row, ['Река']);
+      const pointName = extractStr(row, ['Пункт']);
+      const waterSection = extractStr(row, ['расположения на воде']);
+      if (!locationName && (riverName || pointName || waterSection)) {
+        locationName = [riverName, pointName, waterSection].filter(Boolean).join(' • ');
+      }
       if (!locationName && (upperSettlement || lowerSettlement)) {
         locationName = [upperSettlement, lowerSettlement].filter(Boolean).join(' – ');
       }
@@ -313,10 +460,10 @@ function parseIceRows(rows: any[], fileName: string): ParsedObservation[] {
       }
 
       const notes = extractStr(row, ['Notes', 'Примечания', 'notes']) || '';
-      const phenomenon = extractStr(row, ['Явление', 'Phenomenon', 'phenomenon']) || '';
+      const phenomenon = extractStr(row, ['Явление', 'Phenomenon', 'phenomenon', 'Ледовые явления (примечания)']) || '';
 
       observations.push({
-        date: new Date(dateValue).toISOString(),
+        date: new Date(dateValue || fileModified || Date.now()).toISOString(),
         locationName,
         upperEdgeCoords: upperCoords,
         lowerEdgeCoords: lowerCoords,
@@ -337,7 +484,8 @@ function extractNum(row: any, keys: string[]): number | null {
   for (const key of keys) {
     const val = row[key];
     if (val !== undefined && val !== null && val !== '') {
-      const num = Number(val);
+      const normalized = typeof val === 'string' ? val.replace(',', '.').trim() : val;
+      const num = Number(normalized);
       if (!isNaN(num)) return num;
     }
   }

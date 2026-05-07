@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { format, min, max, differenceInDays, addDays } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { Calendar, MapPin, Plus, Play, Pause, Info, ShieldAlert, CheckCircle2, ShieldUser, XCircle, RefreshCw, Activity, X, TrendingDown, TrendingUp, Minus, Search, Snowflake, Database, Download, HelpCircle, Cloud, AlertCircle, Loader2, Printer } from 'lucide-react';
@@ -8,7 +8,7 @@ import { SETTLEMENTS } from '../utils/riverData';
 
 import SettlementInfoPanel from './SettlementInfoPanel';
 import { useAppStore } from '../store/appStore';
-import { useIceStore } from '../store/iceStore';
+import { AUTO_SYNC_INTERVAL_MS, useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
@@ -17,9 +17,9 @@ import { downloadIceObservationTemplate } from '../utils/excelTemplates';
 export default function Sidebar() {
   const {
     observations, currentDate, setCurrentDate, addObservation,
-    jams, addJam, resolveJam, removeJam, getSectionSpeeds,
+    jams, addJam, resolveJam, removeJam, getSectionSpeeds, getCustomSectionSpeed,
     draftJamCoords, setDraftJamCoords,
-    fetchFromYandexDisk, isLoading, lastSyncTime, syncError, syncFileCount
+    fetchFromYandexDisk, checkYandexForUpdates, isLoading, lastSyncTime, syncError, syncFileCount
   } = useIceStore();
 
   const {
@@ -31,7 +31,31 @@ export default function Sidebar() {
 
   const { getStationHistory, getStation, loadData: reloadWaterData } = useWaterLevelStore();
 
-  const sectionSpeeds = getSectionSpeeds();
+  const sectionSpeeds = useMemo(() => getSectionSpeeds(), [getSectionSpeeds, observations]);
+  const [customSpeedStartName, setCustomSpeedStartName] = useState('');
+  const [customSpeedEndName, setCustomSpeedEndName] = useState('');
+  const normalizeSettlementName = (name: string) => name.toLowerCase().replace(/ё/g, 'е').trim();
+  const findSettlementByName = (name: string) => {
+    const normalized = normalizeSettlementName(name);
+    if (!normalized) return null;
+    const exact = SETTLEMENTS.find((s) => normalizeSettlementName(s.name) === normalized);
+    if (exact) return exact;
+
+    const startsWithMatch = SETTLEMENTS.find((s) => normalizeSettlementName(s.name).startsWith(normalized));
+    if (startsWithMatch) return startsWithMatch;
+
+    return SETTLEMENTS.find((s) => normalizeSettlementName(s.name).includes(normalized)) || null;
+  };
+  const customStartSettlement = useMemo(() => findSettlementByName(customSpeedStartName), [customSpeedStartName]);
+  const customEndSettlement = useMemo(() => findSettlementByName(customSpeedEndName), [customSpeedEndName]);
+  const customSectionSpeed = useMemo(() => (
+    customStartSettlement && customEndSettlement
+      ? getCustomSectionSpeed(
+          { name: customStartSettlement.name, coords: customStartSettlement.coords },
+          { name: customEndSettlement.name, coords: customEndSettlement.coords }
+        )
+      : null
+  ), [customStartSettlement, customEndSettlement, getCustomSectionSpeed, observations]);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // Controls for adding observation
@@ -59,14 +83,10 @@ export default function Sidebar() {
 
   // Search local state
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-
-  useEffect(() => {
-    if (searchQuery.trim().length > 1) {
-      setSearchResults(SETTLEMENTS.filter(s => s.name.toLowerCase().includes(searchQuery.toLowerCase())));
-    } else {
-      setSearchResults([]);
-    }
+  const searchResults = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (q.length <= 1) return [];
+    return SETTLEMENTS.filter((s) => s.name.toLowerCase().includes(q));
   }, [searchQuery]);
 
   useEffect(() => {
@@ -145,6 +165,14 @@ export default function Sidebar() {
     }
     return () => window.clearInterval(interval);
   }, [isPlaying, currentDate, maxDate, minDate, setCurrentDate]);
+
+  useEffect(() => {
+    checkYandexForUpdates();
+    const timer = window.setInterval(() => {
+      checkYandexForUpdates();
+    }, AUTO_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [checkYandexForUpdates]);
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -280,7 +308,6 @@ export default function Sidebar() {
                     setSelectedSettlement(result);
                     setMapCenter(result.coords[0], result.coords[1], 10);
                     setSearchQuery('');
-                    setSearchResults([]);
                   }}
                 >
                   <span className="font-medium">{result.name}</span>
@@ -379,7 +406,9 @@ export default function Sidebar() {
                 <span>
                   {syncError 
                     ? syncError 
-                    : `Синхр. — ${syncFileCount} файл(ов), ${observations.length} записей`
+                    : syncFileCount > 0
+                      ? `Синхр. — ${syncFileCount} нов. файл(ов), ${observations.length} записей`
+                      : 'Проверено: новых файлов нет'
                   }
                 </span>
                 <span className="ml-auto text-[9px] opacity-60">
@@ -387,6 +416,9 @@ export default function Sidebar() {
                 </span>
               </div>
             )}
+            <div className="text-[10px] text-slate-500 text-center">
+              Фоновая автопроверка Яндекс.Диска: каждые 5 минут
+            </div>
 
             <div className="flex gap-2">
               <button
@@ -560,6 +592,59 @@ export default function Sidebar() {
               <Activity className="w-3.5 h-3.5" />
               История по участкам
             </h3>
+            <div className="mb-3 p-2.5 bg-blue-50/60 border border-blue-100 rounded-lg space-y-2">
+              <div className="text-[10px] uppercase tracking-wide font-bold text-blue-700">Скорость между выбранными городами</div>
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  value={customSpeedStartName}
+                  onChange={(e) => setCustomSpeedStartName(e.target.value)}
+                  list="settlements-speed-from"
+                  placeholder="Город от..."
+                  className="w-full text-xs rounded bg-white border border-blue-200 p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <input
+                  value={customSpeedEndName}
+                  onChange={(e) => setCustomSpeedEndName(e.target.value)}
+                  list="settlements-speed-to"
+                  placeholder="Город до..."
+                  className="w-full text-xs rounded bg-white border border-blue-200 p-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <datalist id="settlements-speed-from">
+                  {SETTLEMENTS.slice().reverse().map((s) => (
+                    <option key={`from-${s.id}`} value={s.name} />
+                  ))}
+                </datalist>
+                <datalist id="settlements-speed-to">
+                  {SETTLEMENTS.slice().reverse().map((s) => (
+                    <option key={`to-${s.id}`} value={s.name} />
+                  ))}
+                </datalist>
+              </div>
+              {(customSpeedStartName.trim() && !customStartSettlement) || (customSpeedEndName.trim() && !customEndSettlement) ? (
+                <div className="text-[10px] text-amber-700">
+                  Город не найден. Введите часть названия, например: "якут".
+                </div>
+              ) : null}
+              {customStartSettlement && customEndSettlement && customSectionSpeed && (
+                <div className="text-[11px] text-blue-900 bg-white border border-blue-200 rounded-md p-2">
+                  <div className="font-bold">
+                    {customSectionSpeed.startLoc} → {customSectionSpeed.endLoc}
+                  </div>
+                  <div className="mt-0.5">
+                    {customSectionSpeed.speed.toFixed(1)} км/сут
+                    <span className="text-slate-500 ml-1">({(customSectionSpeed.speed / 24).toFixed(1)} км/ч)</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 mt-0.5">
+                    Дистанция: {customSectionSpeed.distanceKm.toFixed(1)} км, период: {format(new Date(customSectionSpeed.startDate), 'd MMM', { locale: ru })} — {format(new Date(customSectionSpeed.endDate), 'd MMM', { locale: ru })}
+                  </div>
+                </div>
+              )}
+              {customStartSettlement && customEndSettlement && !customSectionSpeed && (
+                <div className="text-[10px] text-slate-500 italic">
+                  Недостаточно наблюдений для выбранного отрезка.
+                </div>
+              )}
+            </div>
             {sectionSpeeds.length > 0 ? (
               <div className="space-y-3 max-h-[200px] overflow-y-auto pr-1">
                 {sectionSpeeds.map((s, idx) => (
