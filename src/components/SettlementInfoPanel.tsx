@@ -30,6 +30,22 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   const prevLevel = history.length > 1 ? history[history.length - 2].level : currentLevel;
   const diff = currentLevel - prevLevel;
 
+  // Cm remaining to the critical level (риск):
+  //   ≤ 0   → red (exceeded)
+  //   ≤ 250 → red (danger)
+  //   ≤ 500 → yellow (warning)
+  //   > 500 → green (normal)
+  const remainingToCritical = stnMeta?.criticalLevel ? stnMeta.criticalLevel - currentLevel : null;
+  const remainingTone = remainingToCritical === null
+    ? { panel: 'bg-slate-50 border-slate-100', icon: 'bg-slate-100 text-slate-500', title: 'text-slate-700', body: 'text-slate-700', value: 'text-slate-800', label: 'нет данных' }
+    : remainingToCritical < 0
+      ? { panel: 'bg-red-50 border-red-200', icon: 'bg-red-100 text-red-600', title: 'text-red-900', body: 'text-red-800', value: 'text-red-700', label: 'критический уровень превышен' }
+      : remainingToCritical <= 250
+        ? { panel: 'bg-red-50 border-red-200', icon: 'bg-red-100 text-red-600', title: 'text-red-900', body: 'text-red-800', value: 'text-red-700', label: 'критическая угроза' }
+        : remainingToCritical <= 500
+          ? { panel: 'bg-amber-50 border-amber-200', icon: 'bg-amber-100 text-amber-600', title: 'text-amber-900', body: 'text-amber-800', value: 'text-amber-700', label: 'повышенное внимание' }
+          : { panel: 'bg-green-50 border-green-200', icon: 'bg-green-100 text-green-600', title: 'text-green-900', body: 'text-green-800', value: 'text-green-700', label: 'норма' };
+
   return (
     <div className="w-full bg-white flex flex-col h-full overflow-hidden">
       {/* Dynamic Header */}
@@ -86,15 +102,22 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
             </section>
 
             {stnMeta?.criticalLevel && (
-              <section className="bg-amber-50 border border-amber-100 rounded-3xl p-6 flex gap-4">
-                <div className="w-12 h-12 bg-amber-100 rounded-2xl flex items-center justify-center shrink-0">
-                  <Info className="w-6 h-6 text-amber-600" />
+              <section className={`border rounded-3xl p-6 flex gap-4 ${remainingTone.panel}`}>
+                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${remainingTone.icon}`}>
+                  <Info className="w-6 h-6" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-amber-900 text-lg mb-1">Критическая отметка</h4>
-                  <p className="text-amber-800 leading-relaxed">
-                    Для данного пункта отметка ОЯ составляет <b className="text-amber-900">{stnMeta.criticalLevel} см</b>. 
-                    До критического уровня осталось <b className="text-red-700">{stnMeta.criticalLevel - currentLevel} см</b>.
+                  <h4 className={`font-bold text-lg mb-1 ${remainingTone.title}`}>
+                    Критическая отметка — {remainingTone.label}
+                  </h4>
+                  <p className={`leading-relaxed ${remainingTone.body}`}>
+                    Для данного пункта отметка ОЯ составляет <b className={remainingTone.title}>{stnMeta.criticalLevel} см</b>.
+                    {remainingToCritical !== null && remainingToCritical >= 0 && (
+                      <> До критического уровня осталось <b className={remainingTone.value}>{remainingToCritical} см</b>.</>
+                    )}
+                    {remainingToCritical !== null && remainingToCritical < 0 && (
+                      <> Уровень превышен на <b className={remainingTone.value}>{Math.abs(remainingToCritical)} см</b>.</>
+                    )}
                   </p>
                 </div>
               </section>

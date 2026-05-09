@@ -457,7 +457,11 @@ export default function MapEditor() {
   const activeJams = useMemo(() => jams.filter((jam) => jam.status === 'active'), [jams]);
 
   const stationRiskByName = useMemo(() => {
-    const targetDate = currentData?.date ? new Date(currentData.date) : new Date();
+    // Prefer the actual timeline date (which reflects user's slider position)
+    // and fall back to the observation date or today.
+    const baseDate = currentData?.date ?? currentDate ?? new Date().toISOString();
+    const targetDate = new Date(baseDate);
+    if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
     const prevDate = new Date(targetDate);
     prevDate.setDate(prevDate.getDate() - 3);
     const riskMap = new globalThis.Map<string, number>();
@@ -472,8 +476,12 @@ export default function MapEditor() {
       const critical = Number(stn.criticalLevel);
       if (Number.isFinite(critical) && critical > 0) {
         const diff = critical - currentLevel;
-        if (diff <= 150) riskScore = Math.max(riskScore, 3);
-        else if (diff <= 300) riskScore = Math.max(riskScore, 2);
+        // Cm remaining to the critical level:
+        //   ≤ 250 → red (danger)
+        //   ≤ 500 → yellow (warning)
+        //   > 500 → green (normal)
+        if (diff <= 250) riskScore = Math.max(riskScore, 3);
+        else if (diff <= 500) riskScore = Math.max(riskScore, 2);
       }
 
       if (prevLevel !== null) {
@@ -487,7 +495,7 @@ export default function MapEditor() {
     }
 
     return riskMap;
-  }, [stations, currentData?.date, activeJams]);
+  }, [stations, currentData?.date, currentDate, activeJams]);
 
   const settlementRiskByName = useMemo(() => {
     const riskMap = new globalThis.Map<string, number>();
@@ -622,7 +630,9 @@ export default function MapEditor() {
   }, [setSelectedSettlement]);
 
   const visibleStations = useMemo(() => {
-    const targetDate = currentData?.date ? new Date(currentData.date) : new Date();
+    const baseDate = currentData?.date ?? currentDate ?? new Date().toISOString();
+    const targetDate = new Date(baseDate);
+    if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
     return stations
       .filter(stn => {
         if (!stn.coords || viewState.zoom < 7.2) return false;
@@ -640,7 +650,7 @@ export default function MapEditor() {
         };
       })
       .filter(Boolean) as { stn: any; level: number; riskLevel: RiskLevel }[];
-  }, [stations, viewState.zoom, mapBounds, currentData?.date, stationRiskByName]);
+  }, [stations, viewState.zoom, mapBounds, currentData?.date, currentDate, stationRiskByName]);
 
   const visibleSettlements = useMemo(() => {
     return SETTLEMENTS

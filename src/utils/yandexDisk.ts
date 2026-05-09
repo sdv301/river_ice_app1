@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx';
+import type { WaterLevelStation } from '../store/waterLevelStore';
+import { parseExcelData } from './excelParser';
 
 // Yandex Disk public folder link
 const YANDEX_PUBLIC_KEY = 'https://disk.yandex.ru/d/LENyBdYBr2B3rA';
@@ -82,6 +84,15 @@ function scoreHeaderRow(row: unknown[]): number {
   if (headers.some((h) => h.includes('lng') || h.includes('долгот'))) score += 1;
   if (headers.some((h) => h.includes('lat') || h.includes('широт'))) score += 1;
   if (headers.some((h) => h.includes('примеч'))) score += 1;
+  if (headers.some((h) => h === 'река')) score += 2;
+  if (headers.some((h) => h === 'пункт')) score += 2;
+
+  // Penalise rows with many empty cells — category/merged headers
+  // tend to have mostly empty cells, whereas real header rows are dense
+  const emptyCount = headers.filter((h) => h === '').length;
+  const emptyRatio = headers.length > 0 ? emptyCount / headers.length : 0;
+  if (emptyRatio > 0.5) score -= 2;
+
   return score;
 }
 
@@ -327,6 +338,22 @@ export const SETTLEMENT_COORDS: Record<string, [number, number]> = {
   'Батамай': [128.08, 63.20],
   'Булун': [127.92, 70.68],
   'Сиктях': [128.40, 71.15],
+
+  // Витим river basin (Бассейн Витима)
+  'Бодайбо': [114.19, 57.85],
+  'Неляты': [113.28, 58.58],
+  'Калакан': [116.39, 54.67],
+  'Патома': [112.82, 59.28],
+  'Романовка': [113.85, 58.30],
+
+  // Олёкма river basin (Бассейн Олёкмы)
+  'Ср.Олёкма': [121.80, 57.60],
+  'Средняя Олёкма': [121.80, 57.60],
+
+  // Lena main-stem observation points
+  'Иннялы': [119.00, 60.00],
+  'Комака': [116.00, 60.10],
+  'Курум': [113.70, 59.85],
 };
 
 /**
@@ -360,8 +387,23 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
 }
 
 /**
+ * Extract a date from a file name like
+ * "Сведения на карту р. Лена 09.05.2026.xlsx" or
+ * "Сведения в карту р. Лена (гидрология) на 08.05.2026 г..xlsx"
+ */
+function extractDateFromFileName(fileName: string): string | null {
+  // Match DD.MM.YYYY pattern
+  const match = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  if (!match) return null;
+  const [, day, month, year] = match;
+  const dateStr = `${year}-${month}-${day}T08:00:00Z`;
+  const d = new Date(dateStr);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/**
  * Parse Excel rows into ice observation objects.
- * Supports FOUR formats:
+ * Supports FIVE formats:
  * 
  * Format 1 (pure geo-coordinates):
  *   Column names containing Lng/Lat or Долгота/Широта for upper/lower edges
@@ -379,6 +421,11 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
  *   Река, Пункт, Ледовые явления (примечания),
  *   Широта/Долгота (нижняя кромка), Широта/Долгота (верхняя кромка),
  *   расположения на воде
+ *
+ * Format 5 (hydro-bulletin without coordinates):
+ *   Река, Пункт, Ледовые явления (примечания)
+ *   No explicit coordinates — resolved from Пункт via SETTLEMENT_COORDS.
+ *   Date extracted from the file name.
  */
 function parseIceRows(rows: any[], fileName: string, fileModified?: string): ParsedObservation[] {
   const observations: ParsedObservation[] = [];
@@ -451,10 +498,34 @@ function parseIceRows(rows: any[], fileName: string, fileModified?: string): Par
         locationName = [upperSettlement, lowerSettlement].filter(Boolean).join(' – ');
       }
 
+      // ---- Format 5: Hydro-bulletin (Река + Пункт, no/partial edge coordinates) ----
+      // Case A: Neither upper nor lower coords found → use Пункт for both
+      // Case B: Only one coord pair found → use Пункт for the missing one
+      if (pointName) {
+        const pointCoords = resolveSettlementCoords(pointName);
+        if (pointCoords) {
+          if (!upperCoords && !lowerCoords) {
+            upperCoords = pointCoords;
+            lowerCoords = pointCoords;
+            upperSettlement = pointName;
+            lowerSettlement = pointName;
+          } else if (!upperCoords) {
+            upperCoords = pointCoords;
+            upperSettlement = pointName;
+          } else if (!lowerCoords) {
+            lowerCoords = pointCoords;
+            lowerSettlement = pointName;
+          }
+          if (!locationName) {
+            locationName = [riverName, pointName].filter(Boolean).join(' • ');
+          }
+        }
+      }
+
       // Skip if we couldn't resolve coordinates for either edge
       if (!upperCoords || !lowerCoords) {
         console.warn(
-          `Не удалось определить координаты кромок: верх="${upperName || 'N/A'}", низ="${lowerName || 'N/A'}" (файл: ${fileName})`
+          `Не удалось определить координаты кромок: верх="${upperName || pointName || 'N/A'}", низ="${lowerName || pointName || 'N/A'}" (файл: ${fileName})`
         );
         continue;
       }
@@ -463,7 +534,7 @@ function parseIceRows(rows: any[], fileName: string, fileModified?: string): Par
       const phenomenon = extractStr(row, ['Явление', 'Phenomenon', 'phenomenon', 'Ледовые явления (примечания)']) || '';
 
       observations.push({
-        date: new Date(dateValue || fileModified || Date.now()).toISOString(),
+        date: new Date(dateValue || extractDateFromFileName(fileName) || fileModified || Date.now()).toISOString(),
         locationName,
         upperEdgeCoords: upperCoords,
         lowerEdgeCoords: lowerCoords,
@@ -502,4 +573,324 @@ function extractStr(row: any, keys: string[]): string {
   }
   return '';
 }
+
+// ============================================================================
+// Water levels — fetched from the same Yandex Disk folder as ice observations
+// ============================================================================
+
+const RUSSIAN_MONTHS: Record<string, number> = {
+  'январ': 0, 'jan': 0,
+  'феврал': 1, 'feb': 1,
+  'март': 2, 'mar': 2,
+  'апрел': 3, 'apr': 3,
+  'мае': 4, 'май': 4, 'may': 4,
+  'июн': 5, 'jun': 5,
+  'июл': 6, 'jul': 6,
+  'август': 7, 'aug': 7,
+  'сентябр': 8, 'sep': 8,
+  'октябр': 9, 'oct': 9,
+  'ноябр': 10, 'nov': 10,
+  'декабр': 11, 'dec': 11,
+};
+
+/**
+ * Heuristic: a file likely contains water levels if its name mentions either
+ * explicit "уровни воды" wording or operational hydro bulletin wording
+ * ("сведения ... гидрология").
+ */
+function isLikelyWaterLevelFile(fileName: string): boolean {
+  const lower = fileName.toLowerCase();
+  if (lower.includes('инструк') || lower.includes('шаблон')) return false;
+  return (
+    lower.includes('уровн') ||
+    lower.includes('уровни воды') ||
+    lower.includes('сведени') ||
+    lower.includes('гидролог') ||
+    lower.includes('water') ||
+    lower.includes('level')
+  );
+}
+
+/**
+ * Extract a 4-digit year from a filename like "Уровни воды в мае 2026.xls".
+ * Returns null if no year is found.
+ */
+function extractYearFromFileName(fileName: string): number | null {
+  const m = fileName.match(/(20\d{2})/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Best-effort guess of the calendar month covered by a water-level file.
+ * Used as a sanity tie-breaker when filtering files by month.
+ */
+function extractMonthFromFileName(fileName: string): number | null {
+  const lower = fileName.toLowerCase();
+  for (const [needle, monthIndex] of Object.entries(RUSSIAN_MONTHS)) {
+    if (lower.includes(needle)) return monthIndex;
+  }
+  return null;
+}
+
+/**
+ * Infer year primarily from file name, with a fallback to modified timestamp.
+ */
+function inferYearForFile(file: YandexFile): number | null {
+  const fromName = extractYearFromFileName(file.name);
+  if (fromName) return fromName;
+  const modified = new Date(file.modified);
+  return Number.isNaN(modified.getTime()) ? null : modified.getUTCFullYear();
+}
+
+function normalizeHeaderCell(value: unknown): string {
+  return String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Parse an operational bulletin sheet with columns like:
+ *   Река | Пункт | в 8 час | ... | Ледовые явления
+ * and one daily value per station.
+ */
+function parseOperationalWaterLevels(
+  rows: unknown[][],
+  dateKey: string,
+): WaterLevelStation[] {
+  if (rows.length === 0) return [];
+
+  let headerRowIndex = -1;
+  for (let i = 0; i < Math.min(rows.length, 8); i++) {
+    const headers = (rows[i] ?? []).map(normalizeHeaderCell);
+    const hasRiver = headers.some((h) => h === 'река');
+    const hasPoint = headers.some((h) => h === 'пункт');
+    const hasLevel = headers.some((h) => h.includes('в 8') || h.includes('уровни'));
+    if (hasRiver && hasPoint && hasLevel) {
+      headerRowIndex = i;
+      break;
+    }
+  }
+  if (headerRowIndex < 0) return [];
+
+  const header = (rows[headerRowIndex] ?? []).map(normalizeHeaderCell);
+  const riverIdx = header.findIndex((h) => h === 'река');
+  const pointIdx = header.findIndex((h) => h === 'пункт');
+  const levelIdx = header.findIndex((h) => h.includes('в 8') || h.includes('уровни'));
+  if (riverIdx < 0 || pointIdx < 0 || levelIdx < 0) return [];
+
+  const byKey = new Map<string, WaterLevelStation>();
+
+  for (let r = headerRowIndex + 1; r < rows.length; r++) {
+    const row = rows[r] ?? [];
+    const river = String(row[riverIdx] ?? '').trim();
+    const name = String(row[pointIdx] ?? '').trim();
+    if (!river || !name) continue;
+
+    const rawLevel = row[levelIdx];
+    const levelNum = Number(
+      typeof rawLevel === 'string' ? rawLevel.replace(',', '.').trim() : rawLevel,
+    );
+    if (!Number.isFinite(levelNum)) continue;
+
+    const key = `${river}__${name}`.toLowerCase().trim();
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.levels[dateKey] = levelNum;
+      continue;
+    }
+
+    byKey.set(key, {
+      id: `${river}_${name}`,
+      index: null,
+      river,
+      name,
+      criticalLevel: null,
+      coords: resolveSettlementCoords(name),
+      levels: { [dateKey]: levelNum },
+    });
+  }
+
+  return Array.from(byKey.values());
+}
+
+/**
+ * Download a Yandex Disk file and parse water levels from either:
+ * - monthly archive format (many dates across columns), or
+ * - operational bulletin format (single date in file name + "в 8 час" column).
+ */
+export async function downloadAndParseWaterLevels(file: YandexFile): Promise<{
+  stations: WaterLevelStation[];
+  year: number | null;
+}> {
+  const downloadUrl = await getDownloadLink(file.path);
+  const response = await fetch(downloadUrl);
+  if (!response.ok) {
+    throw new Error(`Ошибка скачивания файла: ${response.status}`);
+  }
+  const arrayBuffer = await response.arrayBuffer();
+  const inferredYear = inferYearForFile(file);
+
+  // 1) Try monthly tabular format first.
+  if (inferredYear) {
+    const monthlyStations = await parseExcelData(arrayBuffer, inferredYear);
+    const monthlyEntries = monthlyStations.reduce((sum, s) => sum + Object.keys(s.levels).length, 0);
+    if (monthlyEntries > 0) {
+      return { stations: monthlyStations, year: inferredYear };
+    }
+  }
+
+  // 2) Fallback to operational bulletin format.
+  const wb = XLSX.read(arrayBuffer, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][];
+  const isoDate =
+    extractDateFromFileName(file.name) ||
+    (file.modified ? new Date(file.modified).toISOString() : new Date().toISOString());
+  const dateKey = isoDate.substring(0, 10);
+  const opStations = parseOperationalWaterLevels(rows, dateKey);
+  return { stations: opStations, year: inferredYear };
+}
+
+export interface FetchWaterLevelsResult {
+  stations: WaterLevelStation[];
+  fileCount: number;
+  totalFiles: number;
+  hasNewFiles: boolean;
+  latestModified: string | null;
+  errors: string[];
+  filesProcessed: { name: string; year: number; entries: number }[];
+}
+
+export interface FetchWaterLevelsOptions {
+  /** Only consider files modified after this ISO timestamp. */
+  onlyNewerThan?: string | null;
+  /** Limit to a single year (e.g. 2026). When omitted, all years are returned. */
+  year?: number | null;
+}
+
+/**
+ * Walk the public Yandex Disk folder, parse every file that looks like a
+ * water-level table, and return the consolidated list of stations.
+ *
+ * Stations from multiple files are merged: levels from each file are added
+ * to the station's `levels` map keyed by ISO date. The year for each file is
+ * inferred from its file name (e.g. "Уровни воды в мае 2026.xls" → 2026).
+ */
+export async function fetchAllWaterLevelData(
+  options: FetchWaterLevelsOptions = {},
+): Promise<FetchWaterLevelsResult> {
+  const errors: string[] = [];
+  const filesProcessed: { name: string; year: number; entries: number }[] = [];
+
+  let files: YandexFile[];
+  try {
+    files = await listYandexFiles();
+  } catch (e: any) {
+    return {
+      stations: [],
+      fileCount: 0,
+      totalFiles: 0,
+      hasNewFiles: false,
+      latestModified: null,
+      errors: [e.message ?? 'Не удалось получить список файлов с Яндекс.Диска'],
+      filesProcessed: [],
+    };
+  }
+
+  const candidateFiles = files.filter((f) => isLikelyWaterLevelFile(f.name));
+  if (candidateFiles.length === 0) {
+    return {
+      stations: [],
+      fileCount: 0,
+      totalFiles: files.length,
+      hasNewFiles: false,
+      latestModified: null,
+      errors: ['На Яндекс.Диске нет файлов с уровнями воды'],
+      filesProcessed: [],
+    };
+  }
+
+  const latestModifiedTs = candidateFiles
+    .map((f) => new Date(f.modified).getTime())
+    .filter((t) => !Number.isNaN(t))
+    .sort((a, b) => b - a)[0];
+
+  const filteredByDate = options.onlyNewerThan
+    ? candidateFiles.filter(
+        (f) => new Date(f.modified).getTime() > new Date(options.onlyNewerThan as string).getTime(),
+      )
+    : candidateFiles;
+
+  const targetYear = options.year ?? null;
+  const filteredByYear = targetYear
+    ? filteredByDate.filter((f) => inferYearForFile(f) === targetYear)
+    : filteredByDate;
+
+  if (filteredByYear.length === 0) {
+    return {
+      stations: [],
+      fileCount: 0,
+      totalFiles: files.length,
+      hasNewFiles: false,
+      latestModified: Number.isFinite(latestModifiedTs)
+        ? new Date(latestModifiedTs).toISOString()
+        : null,
+      errors: [],
+      filesProcessed: [],
+    };
+  }
+
+  const merged = new Map<string, WaterLevelStation>();
+  const keyOf = (s: WaterLevelStation) => `${s.river}__${s.name}`.toLowerCase().trim();
+
+  for (const file of filteredByYear) {
+    const year = inferYearForFile(file);
+    if (!year) {
+      errors.push(`${file.name}: не удалось определить год по имени файла`);
+      continue;
+    }
+    try {
+      const parsed = await downloadAndParseWaterLevels(file);
+      const stations = parsed.stations;
+      let entries = 0;
+      for (const stn of stations) {
+        const k = keyOf(stn);
+        const existing = merged.get(k);
+        if (existing) {
+          merged.set(k, {
+            ...existing,
+            index: stn.index ?? existing.index,
+            criticalLevel: stn.criticalLevel ?? existing.criticalLevel,
+            coords: stn.coords ?? existing.coords,
+            levels: { ...existing.levels, ...stn.levels },
+          });
+        } else {
+          merged.set(k, { ...stn, levels: { ...stn.levels } });
+        }
+        entries += Object.keys(stn.levels).length;
+      }
+      filesProcessed.push({ name: file.name, year, entries });
+    } catch (e: any) {
+      errors.push(`${file.name}: ${e.message ?? e}`);
+    }
+  }
+
+  return {
+    stations: Array.from(merged.values()),
+    fileCount: filesProcessed.length,
+    totalFiles: files.length,
+    hasNewFiles: filesProcessed.length > 0,
+    latestModified: Number.isFinite(latestModifiedTs)
+      ? new Date(latestModifiedTs).toISOString()
+      : null,
+    errors,
+    filesProcessed,
+  };
+}
+
+// Exposed for unit tests / future filtering UI.
+export const __waterLevelHelpers = {
+  isLikelyWaterLevelFile,
+  extractYearFromFileName,
+  extractMonthFromFileName,
+  inferYearForFile,
+};
 

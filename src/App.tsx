@@ -3,7 +3,7 @@ import MapEditor from './components/MapEditor';
 import Sidebar from './components/Sidebar';
 import { useIceStore } from './store/iceStore';
 import { useAppStore } from './store/appStore';
-import { useWaterLevelStore } from './store/waterLevelStore';
+import { WATER_LEVEL_AUTO_SYNC_INTERVAL_MS, useWaterLevelStore } from './store/waterLevelStore';
 import { PanelLeftClose, PanelLeftOpen, Database, Snowflake } from 'lucide-react';
 import DatabaseViewer from './components/DatabaseViewer';
 import SettlementInfoPanel from './components/SettlementInfoPanel';
@@ -11,6 +11,7 @@ import HelpModal from './components/HelpModal';
 import InteractiveTour, { TourStep } from './components/InteractiveTour';
 import Tooltip from './components/Tooltip';
 import { motion, AnimatePresence } from 'motion/react';
+import { SETTLEMENTS } from './utils/riverData';
 
 const TOUR_STEPS: TourStep[] = [
   {
@@ -94,15 +95,66 @@ export default function App() {
     isAdmin, setIsAdmin,
     selectedYear, setSelectedYear,
     isSidebarOpen, setIsSidebarOpen,
-    isHelpOpen, setIsHelpOpen
+    isHelpOpen, setIsHelpOpen,
+    setMapCenter,
   } = useAppStore();
-  const { loadData } = useWaterLevelStore();
+  const { loadData, fetchFromYandexDisk, checkYandexForUpdates } = useWaterLevelStore();
   const [isDbOpen, setIsDbOpen] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
 
   React.useEffect(() => {
-    loadData();
-  }, [loadData]);
+    let cancelled = false;
+    (async () => {
+      await loadData();
+      if (cancelled) return;
+      // Pull the latest water levels from Yandex Disk so the live 2026 data
+      // is reflected on the map (city highlighting, settlement panels, etc.)
+      // without a manual import. Errors are non-fatal; we just keep the
+      // baseline JSON in that case.
+      try {
+        await fetchFromYandexDisk();
+      } catch (e) {
+        console.warn('Yandex Disk water-levels sync skipped:', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadData, fetchFromYandexDisk]);
+
+  React.useEffect(() => {
+    const timer = window.setInterval(() => {
+      checkYandexForUpdates().catch(() => {});
+    }, WATER_LEVEL_AUTO_SYNC_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [checkYandexForUpdates]);
+
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const settlementName = params.get('settlement');
+    const yearParamRaw = params.get('year');
+    const yearParam = yearParamRaw ? Number(yearParamRaw) : null;
+
+    if (yearParam === 2025 || yearParam === 2026) {
+      setSelectedYear(yearParam);
+    }
+
+    if (settlementName) {
+      const normalized = settlementName.toLowerCase().replace(/ё/g, 'е').trim();
+      const target = SETTLEMENTS.find(
+        (s) => s.name.toLowerCase().replace(/ё/g, 'е').trim() === normalized,
+      );
+      if (target) {
+        setSelectedSettlement(target);
+        setMapCenter(target.coords[0], target.coords[1], 9);
+        setIsSidebarOpen(true);
+      }
+    }
+
+    if (window.location.search) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, [setMapCenter, setIsSidebarOpen, setSelectedSettlement, setSelectedYear]);
 
   React.useEffect(() => {
     loadYearData(selectedYear);

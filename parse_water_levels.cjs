@@ -106,6 +106,11 @@ for (const file of files) {
   }
 }
 
+// 2026 data is intentionally NOT synthesized here — it is fetched live from
+// Yandex Disk by the front-end (see src/utils/yandexDisk.ts) and merged on
+// top of this baseline. Keep this file responsible for the historical 2025
+// archive only.
+
 const db = {
   metadata: {
     source: "Excel data May-June 2025",

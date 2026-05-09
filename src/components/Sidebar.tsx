@@ -8,7 +8,7 @@ import { SETTLEMENTS } from '../utils/riverData';
 
 import SettlementInfoPanel from './SettlementInfoPanel';
 import { useAppStore } from '../store/appStore';
-import { AUTO_SYNC_INTERVAL_MS, useIceStore } from '../store/iceStore';
+import { AUTO_SYNC_INTERVAL_MS, getDefaultCurrentDate, useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
@@ -39,12 +39,7 @@ export default function Sidebar() {
     const normalized = normalizeSettlementName(name);
     if (!normalized) return null;
     const exact = SETTLEMENTS.find((s) => normalizeSettlementName(s.name) === normalized);
-    if (exact) return exact;
-
-    const startsWithMatch = SETTLEMENTS.find((s) => normalizeSettlementName(s.name).startsWith(normalized));
-    if (startsWithMatch) return startsWithMatch;
-
-    return SETTLEMENTS.find((s) => normalizeSettlementName(s.name).includes(normalized)) || null;
+    return exact || null;
   };
   const customStartSettlement = useMemo(() => findSettlementByName(customSpeedStartName), [customSpeedStartName]);
   const customEndSettlement = useMemo(() => findSettlementByName(customSpeedEndName), [customSpeedEndName]);
@@ -96,11 +91,22 @@ export default function Sidebar() {
     }
   }, [draftJamCoords, setPickMode]);
 
-  const minDate = observations.length > 0 ? min(observations.map(o => new Date(o.date))) : new Date('2026-05-01');
-  const maxDate = observations.length > 0 ? max(observations.map(o => new Date(o.date))) : new Date('2026-05-31');
-  const totalDays = differenceInDays(maxDate, minDate);
+  const fallbackMin = new Date(`${selectedYear}-05-01T00:00:00Z`);
+  const fallbackMax = new Date(`${selectedYear}-06-30T23:59:59Z`);
+  const today = new Date();
+  // Extend the slider range to also cover today's date if we are currently
+  // inside the monitored season for the selected year (so the timeline
+  // always shows the actual present day).
+  const includeToday = today.getFullYear() === selectedYear && today >= fallbackMin && today <= fallbackMax;
+  const baseDates = observations.length > 0
+    ? observations.map(o => new Date(o.date))
+    : [fallbackMin, fallbackMax];
+  if (includeToday) baseDates.push(today);
+  const minDate = min(baseDates);
+  const maxDate = max(baseDates);
+  const totalDays = Math.max(differenceInDays(maxDate, minDate), 1);
 
-  const currentDays = differenceInDays(new Date(currentDate), minDate);
+  const currentDays = Math.max(0, Math.min(totalDays, differenceInDays(new Date(currentDate), minDate)));
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const daysToAdd = parseInt(e.target.value, 10);
@@ -250,7 +256,7 @@ export default function Sidebar() {
             className="w-full bg-slate-50 hover:bg-blue-50 text-blue-700 border border-blue-100 font-bold py-2.5 px-4 rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all group"
           >
             <Database className="w-4 h-4 group-hover:scale-110 transition-transform" />
-            <span className="text-sm">Архив: База данных 2025</span>
+            <span className="text-sm">База данных уровней воды</span>
           </a>
         </div>
 
@@ -267,12 +273,12 @@ export default function Sidebar() {
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            2025 (Архив)
+            2025 (  )
           </button>
           <button
             onClick={() => {
               setSelectedYear(2026);
-              setCurrentDate('2026-05-01T12:00:00Z');
+              setCurrentDate(getDefaultCurrentDate(2026));
             }}
             className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg transition-all ${
               selectedYear === 2026 
@@ -495,12 +501,25 @@ export default function Sidebar() {
                         </div>
                       )}
                     </div>
-                    {stnMeta?.criticalLevel && (
-                      <div>
-                        <div className="text-[10px] uppercase font-bold text-amber-500">До критического</div>
-                        <div className="font-bold text-amber-700 text-xl">{Math.max(0, stnMeta.criticalLevel - currentLevel)} <span className="text-xs font-normal">см</span></div>
-                      </div>
-                    )}
+                    {stnMeta?.criticalLevel && (() => {
+                      const remaining = stnMeta.criticalLevel - currentLevel;
+                      // ≤ 0 / ≤ 250 → red; ≤ 500 → yellow; > 500 → green
+                      const tone = remaining < 0 || remaining <= 250
+                        ? { label: 'text-red-500', value: 'text-red-700' }
+                        : remaining <= 500
+                          ? { label: 'text-amber-500', value: 'text-amber-700' }
+                          : { label: 'text-emerald-500', value: 'text-emerald-700' };
+                      return (
+                        <div>
+                          <div className={`text-[10px] uppercase font-bold ${tone.label}`}>
+                            {remaining < 0 ? 'Превышен на' : 'До критического'}
+                          </div>
+                          <div className={`font-bold text-xl ${tone.value}`}>
+                            {Math.abs(remaining)} <span className="text-xs font-normal">см</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </div>
                   
                   {history.length > 1 && (
@@ -622,7 +641,7 @@ export default function Sidebar() {
               </div>
               {(customSpeedStartName.trim() && !customStartSettlement) || (customSpeedEndName.trim() && !customEndSettlement) ? (
                 <div className="text-[10px] text-amber-700">
-                  Город не найден. Введите часть названия, например: "якут".
+                  Город не найден. Выберите город из выпадающего списка (точное совпадение названия).
                 </div>
               ) : null}
               {customStartSettlement && customEndSettlement && customSectionSpeed && (
