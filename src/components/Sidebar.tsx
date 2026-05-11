@@ -29,7 +29,14 @@ export default function Sidebar() {
     setIsHelpOpen, isPrintCropMode, setIsPrintCropMode, printType, setPrintType, setIsSidebarOpen
   } = useAppStore();
 
-  const { getStationHistory, getStation, loadData: reloadWaterData } = useWaterLevelStore();
+  const {
+    getStationHistory,
+    getStation,
+    loadData: reloadWaterData,
+    isSyncing: isWaterSyncing,
+    lastSyncTime: waterLastSyncTime,
+    syncError: waterSyncError,
+  } = useWaterLevelStore();
 
   const sectionSpeeds = useMemo(() => getSectionSpeeds(), [getSectionSpeeds, observations]);
   const [customSpeedStartName, setCustomSpeedStartName] = useState('');
@@ -52,6 +59,8 @@ export default function Sidebar() {
       : null
   ), [customStartSettlement, customEndSettlement, getCustomSectionSpeed, observations]);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [selectedObservationDay, setSelectedObservationDay] = useState<string | null>(null);
+  const [selectedObservationId, setSelectedObservationId] = useState<string | null>(null);
 
   // Controls for adding observation
   const [showAddObs, setShowAddObs] = useState(false);
@@ -104,13 +113,71 @@ export default function Sidebar() {
   if (includeToday) baseDates.push(today);
   const minDate = min(baseDates);
   const maxDate = max(baseDates);
-  const totalDays = Math.max(differenceInDays(maxDate, minDate), 1);
+  const observationDays = useMemo(() => {
+    return Array.from(new Set(
+      observations
+        .map((obs) => new Date(obs.date))
+        .filter((d) => !Number.isNaN(d.getTime()))
+        .map((d) => d.toISOString().slice(0, 10))
+    )).sort();
+  }, [observations]);
+  const observationDaysDesc = useMemo(() => [...observationDays].sort((a, b) => b.localeCompare(a)), [observationDays]);
+  const observationsForSelectedDay = useMemo(() => {
+    if (!selectedObservationDay) return observations.slice().reverse();
+    return observations
+      .filter((obs) => new Date(obs.date).toISOString().slice(0, 10) === selectedObservationDay)
+      .slice()
+      .reverse();
+  }, [observations, selectedObservationDay]);
+
+  useEffect(() => {
+    if (observationDaysDesc.length === 0) {
+      setSelectedObservationDay(null);
+      setSelectedObservationId(null);
+      return;
+    }
+    if (!selectedObservationDay || !observationDaysDesc.includes(selectedObservationDay)) {
+      setSelectedObservationDay(observationDaysDesc[0]);
+      setSelectedObservationId(null);
+    }
+  }, [observationDaysDesc, selectedObservationDay]);
+  const maxObservedDate = useMemo(() => {
+    if (observationDays.length === 0) return null;
+    return new Date(`${observationDays[observationDays.length - 1]}T12:00:00.000Z`);
+  }, [observationDays]);
+  const navigationMaxDate = maxObservedDate ?? maxDate;
+  const totalDays = Math.max(differenceInDays(navigationMaxDate, minDate), 1);
 
   const currentDays = Math.max(0, Math.min(totalDays, differenceInDays(new Date(currentDate), minDate)));
+  const selectedTimelineDay = new Date(currentDate).toISOString().slice(0, 10);
+  const nearestObservedDay = useMemo(() => {
+    if (observationDays.length === 0) return null;
+    let nearest = observationDays[0];
+    for (const day of observationDays) {
+      if (day <= selectedTimelineDay) nearest = day;
+      else break;
+    }
+    return nearest;
+  }, [observationDays, selectedTimelineDay]);
+  const showMissingObservationNotice = observationDays.length > 0 &&
+    !observationDays.includes(selectedTimelineDay) &&
+    Boolean(nearestObservedDay);
+  const todayDay = new Date().toISOString().slice(0, 10);
+  const isCurrentDayWithoutData = selectedTimelineDay === todayDay && !observationDays.includes(todayDay);
+
+  const focusObservationOnMap = (obs: IceObservation) => {
+    const centerLng = (obs.upperEdgeCoords[0] + obs.lowerEdgeCoords[0]) / 2;
+    const centerLat = (obs.upperEdgeCoords[1] + obs.lowerEdgeCoords[1]) / 2;
+    setMapCenter(centerLng, centerLat, 7);
+  };
 
   const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const daysToAdd = parseInt(e.target.value, 10);
     const newCurrent = addDays(minDate, daysToAdd);
+    if (newCurrent.getTime() > navigationMaxDate.getTime()) {
+      setCurrentDate(navigationMaxDate.toISOString());
+      return;
+    }
     setCurrentDate(newCurrent.toISOString());
   };
 
@@ -161,16 +228,22 @@ export default function Sidebar() {
     if (isPlaying) {
       interval = window.setInterval(() => {
         const curDateObj = new Date(currentDate);
-        if (curDateObj.getTime() >= maxDate.getTime()) {
+        if (curDateObj.getTime() >= navigationMaxDate.getTime()) {
           setIsPlaying(false);
-          setCurrentDate(minDate.toISOString()); // Reset
+          return;
         } else {
-          setCurrentDate(addDays(curDateObj, 1).toISOString());
+          const nextDate = addDays(curDateObj, 1);
+          if (nextDate.getTime() > navigationMaxDate.getTime()) {
+            setCurrentDate(navigationMaxDate.toISOString());
+            setIsPlaying(false);
+            return;
+          }
+          setCurrentDate(nextDate.toISOString());
         }
       }, 500); // 0.5s per day
     }
     return () => window.clearInterval(interval);
-  }, [isPlaying, currentDate, maxDate, minDate, setCurrentDate]);
+  }, [isPlaying, currentDate, navigationMaxDate, setCurrentDate]);
 
   useEffect(() => {
     checkYandexForUpdates();
@@ -258,6 +331,33 @@ export default function Sidebar() {
             <Database className="w-4 h-4 group-hover:scale-110 transition-transform" />
             <span className="text-sm">База данных уровней воды</span>
           </a>
+          <div className={`mt-2 text-[10px] px-3 py-1.5 rounded-lg border flex items-center gap-1.5 ${
+            waterSyncError
+              ? 'bg-red-50 border-red-200 text-red-600'
+              : isWaterSyncing
+                ? 'bg-amber-50 border-amber-200 text-amber-700'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-700'
+          }`}>
+            {waterSyncError ? (
+              <AlertCircle className="w-3 h-3 shrink-0" />
+            ) : isWaterSyncing ? (
+              <Loader2 className="w-3 h-3 shrink-0 animate-spin" />
+            ) : (
+              <CheckCircle2 className="w-3 h-3 shrink-0" />
+            )}
+            <span>
+              {waterSyncError
+                ? `Ошибка sync БД: ${waterSyncError}`
+                : isWaterSyncing
+                  ? 'Синхронизация БД с Яндекс.Диском...'
+                  : 'База воды актуальна (последняя проверка выполнена)'}
+            </span>
+            {waterLastSyncTime && (
+              <span className="ml-auto text-[9px] opacity-60">
+                {format(new Date(waterLastSyncTime), 'HH:mm', { locale: ru })}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Year Switcher within Sidebar */}
@@ -273,7 +373,7 @@ export default function Sidebar() {
                 : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            2025 (  )
+            2025 (Архив)
           </button>
           <button
             onClick={() => {
@@ -568,6 +668,18 @@ export default function Sidebar() {
           <div className="mt-3 text-center text-lg font-medium text-slate-800">
             {format(new Date(currentDate), 'dd MMMM yyyy', { locale: ru })}
           </div>
+          {showMissingObservationNotice && nearestObservedDay && (
+            <div className="mt-2 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] text-sky-900 flex items-center gap-1.5">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {isCurrentDayWithoutData ? (
+                <span>На текущую дату данных на данный момент нет.</span>
+              ) : (
+                <span>
+                  Нет наблюдения на выбранную дату, показано состояние на {format(new Date(`${nearestObservedDay}T12:00:00.000Z`), 'dd.MM', { locale: ru })}.
+                </span>
+              )}
+            </div>
+          )}
 
           <div className="mt-6" data-tour="legend">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ледовые явления</h3>
@@ -918,8 +1030,37 @@ export default function Sidebar() {
           )}
 
           <div className="space-y-3">
+            {observationDaysDesc.length > 0 && (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500 mb-2">
+                  Дни наблюдений
+                </div>
+                <div className="flex gap-1.5 overflow-x-auto pb-1">
+                  {observationDaysDesc.map((day) => {
+                    const isActiveDay = day === selectedObservationDay;
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          setSelectedObservationDay(day);
+                          setSelectedObservationId(null);
+                        }}
+                        className={`shrink-0 px-2.5 py-1 rounded-md text-xs font-semibold border transition-colors ${
+                          isActiveDay
+                            ? 'bg-blue-600 text-white border-blue-600'
+                            : 'bg-white text-slate-600 border-slate-300 hover:border-blue-300 hover:text-blue-700'
+                        }`}
+                      >
+                        {format(new Date(`${day}T12:00:00.000Z`), 'dd.MM')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             <AnimatePresence>
-              {observations.slice().reverse().map((obs, idx) => (
+              {observationsForSelectedDay.map((obs, idx) => (
                 <motion.div 
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
@@ -927,12 +1068,14 @@ export default function Sidebar() {
                   transition={{ duration: 0.2, delay: idx * 0.05 }}
                   key={obs.id} 
                   className={`p-3 rounded-lg border flex flex-col gap-2 relative transition-shadow hover:shadow-md cursor-pointer ${
-                    isAdmin ? 'border-slate-200 bg-white hover:border-blue-300' 
-                    : (obs.date === currentDate ? 'border-blue-400 bg-blue-50 ring-1 ring-blue-400' : 'border-slate-200 bg-white')
+                    selectedObservationId === obs.id
+                      ? 'border-blue-500 bg-blue-50 ring-1 ring-blue-400'
+                      : 'border-slate-200 bg-white hover:border-blue-300'
                   }`}
                   onClick={() => {
-                    if (!isAdmin && isPlaying) setIsPlaying(false);
-                    setCurrentDate(obs.date);
+                    if (isPlaying) setIsPlaying(false);
+                    setSelectedObservationId(obs.id);
+                    focusObservationOnMap(obs);
                   }}
                 >
                   <div className="font-semibold text-slate-800 text-sm">

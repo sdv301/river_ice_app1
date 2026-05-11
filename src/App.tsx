@@ -98,7 +98,7 @@ export default function App() {
     isHelpOpen, setIsHelpOpen,
     setMapCenter,
   } = useAppStore();
-  const { loadData, fetchFromYandexDisk, checkYandexForUpdates } = useWaterLevelStore();
+  const { loadData, checkYandexForUpdates } = useWaterLevelStore();
   const [isDbOpen, setIsDbOpen] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
 
@@ -107,20 +107,13 @@ export default function App() {
     (async () => {
       await loadData();
       if (cancelled) return;
-      // Pull the latest water levels from Yandex Disk so the live 2026 data
-      // is reflected on the map (city highlighting, settlement panels, etc.)
-      // without a manual import. Errors are non-fatal; we just keep the
-      // baseline JSON in that case.
-      try {
-        await fetchFromYandexDisk();
-      } catch (e) {
-        console.warn('Yandex Disk water-levels sync skipped:', e);
-      }
+      // The map should render immediately from the local database/snapshot.
+      // Remote Yandex Disk sync runs in the periodic 5-minute updater below.
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadData, fetchFromYandexDisk]);
+  }, [loadData]);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => {

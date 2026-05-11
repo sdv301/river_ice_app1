@@ -26,6 +26,24 @@ type RiskNotification = {
   level: RiskLevel;
 };
 
+type PhenomenonKind = 'water' | 'drift' | 'freeze' | 'jam' | 'unknown';
+
+function detectPhenomenonKind(notes?: string, locationName?: string): PhenomenonKind {
+  const text = `${notes ?? ''} ${locationName ?? ''}`.toLowerCase();
+  if (text.includes('затор') || text.includes('навал')) return 'jam';
+  if (text.includes('чистая вода') || text.includes('вода на льду')) return 'water';
+  if (text.includes('ледостав')) return 'freeze';
+  if (
+    text.includes('ледоход') ||
+    text.includes('подвижк') ||
+    text.includes('закраин') ||
+    text.includes('развод')
+  ) {
+    return 'drift';
+  }
+  return 'unknown';
+}
+
 const MAP_STYLES: Record<string, any> = {
   'local': {
     version: 8,
@@ -179,6 +197,51 @@ export default function MapEditor() {
   const [cropStart, setCropStart] = useState<{x: number, y: number} | null>(null);
   const [customCropRect, setCustomCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const mapRootRef = useRef<HTMLDivElement | null>(null);
+  const observationPoints = useMemo(() => {
+    return observations.flatMap((obs) => {
+      return [
+        {
+          id: `${obs.id}-upper`,
+          coords: obs.upperEdgeCoords,
+          type: 'upper' as const,
+        },
+        {
+          id: `${obs.id}-lower`,
+          coords: obs.lowerEdgeCoords,
+          type: 'lower' as const,
+        },
+      ];
+    });
+  }, [observations]);
+  const observationPointsGeoJSON = useMemo(() => ({
+    type: 'FeatureCollection' as const,
+    features: observationPoints.map((pt) => ({
+      type: 'Feature' as const,
+      geometry: {
+        type: 'Point' as const,
+        coordinates: pt.coords,
+      },
+      properties: {
+        id: pt.id,
+        pointType: pt.type,
+      },
+    })),
+  }), [observationPoints]);
+  const currentDay = useMemo(() => new Date(currentDate).toISOString().slice(0, 10), [currentDate]);
+  const phenomenonMarkers = useMemo(() => {
+    return observations.map((obs) => {
+      const kind = detectPhenomenonKind(obs.notes, obs.locationName);
+      return {
+        id: `ph-${obs.id}`,
+        day: new Date(obs.date).toISOString().slice(0, 10),
+        kind,
+        coords: [
+          (obs.upperEdgeCoords[0] + obs.lowerEdgeCoords[0]) / 2,
+          (obs.upperEdgeCoords[1] + obs.lowerEdgeCoords[1]) / 2,
+        ] as [number, number],
+      };
+    });
+  }, [observations]);
 
   const getRelativePoint = (e: React.MouseEvent) => {
     const rect = mapRootRef.current?.getBoundingClientRect();
@@ -867,6 +930,70 @@ export default function MapEditor() {
             }}
           />
         </Source>
+
+        {viewState.zoom >= 5.2 && observationPointsGeoJSON.features.length > 0 && (
+          <Source id="observation-points" type="geojson" data={observationPointsGeoJSON as any}>
+            <Layer
+              id="observation-points-upper"
+              type="circle"
+              filter={['==', ['get', 'pointType'], 'upper']}
+              paint={{
+                'circle-radius': 3,
+                'circle-color': '#60a5fa',
+                'circle-stroke-color': '#ffffff',
+                'circle-stroke-width': 1,
+                'circle-opacity': 0.9,
+              }}
+            />
+            <Layer
+              id="observation-points-lower"
+              type="circle"
+              filter={['==', ['get', 'pointType'], 'lower']}
+              paint={{
+                'circle-radius': 3,
+                'circle-color': '#e2e8f0',
+                'circle-stroke-color': '#64748b',
+                'circle-stroke-width': 1,
+                'circle-opacity': 0.9,
+              }}
+            />
+          </Source>
+        )}
+
+        {viewState.zoom >= 5.8 && phenomenonMarkers.map((marker) => {
+          const isCurrent = marker.day === currentDay;
+          const Icon =
+            marker.kind === 'water'
+              ? Droplets
+              : marker.kind === 'freeze'
+                ? Snowflake
+                : marker.kind === 'jam'
+                  ? AlertTriangle
+                  : CircleDot;
+          const toneClass =
+            marker.kind === 'water'
+              ? 'bg-blue-500/90 text-white'
+              : marker.kind === 'freeze'
+                ? 'bg-slate-300/95 text-slate-700'
+                : marker.kind === 'jam'
+                  ? 'bg-orange-500/90 text-white'
+                  : marker.kind === 'drift'
+                    ? 'bg-cyan-500/90 text-white'
+                    : 'bg-slate-500/80 text-white';
+          const animationClass =
+            marker.kind === 'jam' ? 'animate-ping' : marker.kind === 'freeze' ? 'animate-pulse' : 'animate-bounce';
+          return (
+            <Marker key={marker.id} longitude={marker.coords[0]} latitude={marker.coords[1]} anchor="center">
+              <div className="pointer-events-none">
+                <div className={`rounded-full border border-white/80 shadow-md ${toneClass} ${animationClass} ${
+                  isCurrent ? 'w-5 h-5' : 'w-4 h-4 opacity-90'
+                } flex items-center justify-center`}>
+                  <Icon className={isCurrent ? 'w-3 h-3' : 'w-2.5 h-2.5'} />
+                </div>
+              </div>
+            </Marker>
+          );
+        })}
 
         {currentData && (
           <>

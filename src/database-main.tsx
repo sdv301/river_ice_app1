@@ -5,26 +5,20 @@ import { WATER_LEVEL_AUTO_SYNC_INTERVAL_MS, useWaterLevelStore } from './store/w
 import './index.css';
 
 function DatabasePage() {
-  const { loadData, fetchFromYandexDisk, checkYandexForUpdates } = useWaterLevelStore();
+  const { loadData, checkYandexForUpdates } = useWaterLevelStore();
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
-      // 1) Pull the static 2025 archive (and any previously saved local overrides).
+      // 1) Pull local DB/snapshot first to show data instantly.
       await loadData();
       if (cancelled) return;
-      // 2) Refresh the database with the latest data from Yandex Disk so the
-      //    real 2026 dates appear automatically without a manual upload.
-      try {
-        await fetchFromYandexDisk();
-      } catch (e) {
-        console.warn('Не удалось синхронизироваться с Яндекс.Диском:', e);
-      }
+      // 2) Yandex Disk sync is handled by the periodic 5-minute updater below.
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadData, fetchFromYandexDisk]);
+  }, [loadData]);
 
   React.useEffect(() => {
     const timer = window.setInterval(() => {
