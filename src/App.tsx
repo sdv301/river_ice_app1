@@ -12,6 +12,7 @@ import InteractiveTour, { TourStep } from './components/InteractiveTour';
 import Tooltip from './components/Tooltip';
 import { motion, AnimatePresence } from 'motion/react';
 import { SETTLEMENTS } from './utils/riverData';
+import { DATA_SOURCE_MODE } from './config/runtimeConfig';
 
 const TOUR_STEPS: TourStep[] = [
   {
@@ -116,6 +117,7 @@ export default function App() {
   }, [loadData]);
 
   React.useEffect(() => {
+    if (DATA_SOURCE_MODE === 'none') return;
     const timer = window.setInterval(() => {
       checkYandexForUpdates().catch(() => {});
     }, WATER_LEVEL_AUTO_SYNC_INTERVAL_MS);

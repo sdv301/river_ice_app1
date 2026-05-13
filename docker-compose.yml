@@ -3,32 +3,78 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_ENABLE_EXTERNAL_NETWORK: ${VITE_ENABLE_EXTERNAL_NETWORK:-false}
+        VITE_DATA_SOURCE: ${VITE_DATA_SOURCE:-internal}
+        VITE_INTERNAL_DATA_API_BASE: ${VITE_INTERNAL_DATA_API_BASE:-/api}
+        VITE_MAP_DEFAULT_TYPE: ${VITE_MAP_DEFAULT_TYPE:-local}
+        VITE_MAP_SATELLITE_TILES_URL: ${VITE_MAP_SATELLITE_TILES_URL:-}
+        VITE_MAP_VECTOR_STYLE_URL: ${VITE_MAP_VECTOR_STYLE_URL:-}
+        VITE_MAP_BASIN_STYLE_URL: ${VITE_MAP_BASIN_STYLE_URL:-/frexosm_basin_style.json}
+        VITE_NOMINATIM_ENABLED: ${VITE_NOMINATIM_ENABLED:-false}
+        VITE_NOMINATIM_URL: ${VITE_NOMINATIM_URL:-}
     restart: unless-stopped
     expose:
       - "${WEBAPP_PORT:-8080}"
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${WEBAPP_PORT:-8080}/index.html || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:${WEBAPP_PORT:-8080}/index.html || exit 1",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
+
+  internal-data-api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.internal-data-api
+    restart: unless-stopped
+    expose:
+      - "8787"
+    environment:
+      INTERNAL_DATA_HOST: ${INTERNAL_DATA_HOST:-0.0.0.0}
+      INTERNAL_DATA_DIR: ${INTERNAL_DATA_DIR:-/data}
+    volumes:
+      - ./internal-data:/data:ro
+    networks:
+      - app_net
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:8787/api/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
 
   gateway:
     image: nginx:1.27-alpine
     depends_on:
       webapp:
         condition: service_healthy
+      internal-data-api:
+        condition: service_healthy
     restart: unless-stopped
     ports:
-      - "${PUBLIC_PORT:-3030}:${GATEWAY_PORT:-6000}"
+      - "${PUBLIC_PORT:-443}:443"
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
     networks:
       - app_net
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:${GATEWAY_PORT:-6000}/index.html || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --no-check-certificate -O /dev/null https://127.0.0.1/ || exit 1",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -46,49 +46,53 @@
 - **Кэширование и производительность**: Тяжелые GeoJSON данные (границы улусов Якутии) вынесены в `public/` для асинхронного парсинга, что снизило размер первоначального JS бандла на 300+ КБ. Тайлы карт кэшируются до 30 дней.
 
 ## 🤝 Разработка
-В корне проекта находится `vite.config.ts`, в котором уже настроены `tailwindcss` плагины и конфигурации `VitePWA` для offline-кэширования доменов Esri, Carto и AWS Terrain.
+В корне проекта находится `vite.config.ts`, в котором уже настроены `tailwindcss` плагины и конфигурации `VitePWA` (Workbox): кэширование same-origin путей `/tiles`, `/terrain`, `/fonts`, `/api` и опционально внешних хостов из `VITE_TILE_CACHE_HOSTS`.
 
-## 🐳 Деплой на сервер через Docker (порт 3030)
+## 🐳 Деплой через Docker (внешний только HTTPS, порт 443)
 
-Стек деплоя настроен так, чтобы снаружи был доступен только один порт `3030`, а внутренние сервисы работали в отдельной Docker-сети.
-Внешний `6000` для браузера не используется, так как Chrome/Edge блокируют его (`ERR_UNSAFE_PORT`).
+Снаружи открывается **один** порт (по умолчанию `443` на хосте → `443` в контейнере `gateway`). Внутри сети Docker работают:
 
-### Что добавлено
-- `Dockerfile` - multi-stage сборка Vite и запуск статики в контейнере `webapp`.
-- `docker-compose.yml` - два основных сервиса:
-  - `webapp` (внутренний, без публикации порта наружу);
-  - `gateway` (внешняя точка входа на `3030`, проксирует в `webapp`).
-- `deploy/nginx.conf` - reverse proxy для внешнего входа.
-- `deploy/webapp.nginx.conf` - статическая раздача `dist` с учетом PWA-файлов и `database.html`.
-- `deploy/.env.server.example` - шаблон серверных переменных.
+- **`webapp`** — статика Vite (`/`).
+- **`internal-data-api`** — чтение Excel из `./internal-data` (`/api/*`).
+- **`gateway`** — `nginx` с TLS, маршрутизация на сервисы выше.
 
-### Быстрый запуск на сервере
-1. Скопируйте шаблон переменных:
+### Файлы
+- `Dockerfile` — сборка фронта; аргументы `VITE_*` задаются из `.env` (см. `deploy/server.env.example`).
+- `deploy/Dockerfile.internal-data-api` — Node-сервис `/api/disk/*`.
+- `docker-compose.yml` — три сервиса + опциональный `optional-lint`.
+- `deploy/nginx.conf` — TLS на `:443`, `location /api/` → `internal-data-api:8787`, остальное → `webapp:8080`.
+- `deploy/webapp.nginx.conf` — статика в образе `webapp`.
+- `deploy/server.env.example` — шаблон переменных для `docker compose`.
+- `deploy/init-certs.sh` — генерация самоподписанных сертификатов в `deploy/certs/` (для стенда; в проде подставьте свои PEM).
+
+### Быстрый запуск
+1. Скопируйте переменные и при необходимости поправьте порт (на стенде без root часто удобно `PUBLIC_PORT=8443`):
    ```bash
-   cp deploy/.env.server.example .env
+   cp deploy/server.env.example .env
    ```
-2. Поднимите сервисы:
+2. Положите TLS-файлы в `deploy/certs/` (`fullchain.pem`, `privkey.pem`). Для локального стенда:
+   ```bash
+   sh deploy/init-certs.sh
+   ```
+3. Положите файлы `.xlsx` / `.xls` / `.csv` в каталог `internal-data/` на хосте (он монтируется в API только на чтение).
+4. Поднимите стек:
    ```bash
    docker compose --env-file .env up -d --build
    ```
-3. Проверьте состояние:
+5. Проверка:
    ```bash
    docker compose ps
-   docker compose logs --tail=100 gateway webapp
+   docker compose logs --tail=100 gateway webapp internal-data-api
    ```
 
-### Опциональные внутренние процессы (если не готовы - не блокируют запуск)
-По умолчанию стартуют только основные сервисы (`gateway` + `webapp`).
-
-Профиль `optional-checks` запускается отдельно и не влияет на основной прод-запуск:
+### Опциональные проверки
+Профиль `optional-checks` не влияет на основной запуск:
 ```bash
 docker compose --profile optional-checks run --rm optional-lint
 ```
 
-### Smoke-проверки после деплоя
-- Приложение доступно: `http://<SERVER_HOST>:3030/`
-- Второй entrypoint доступен: `http://<SERVER_HOST>:3030/database.html`
-- PWA-файлы отдаются без ошибок:
-  - `http://<SERVER_HOST>:3030/manifest.webmanifest`
-  - `http://<SERVER_HOST>:3030/sw.js`
-- После `docker compose restart` приложение снова открывается на `:3030`.
+### Smoke-проверки
+- UI: `https://<SERVER_HOST>/` (или `https://<SERVER_HOST>:8443/` если задали `PUBLIC_PORT=8443`).
+- База уровней: `https://<SERVER_HOST>/database.html`
+- PWA: `https://<SERVER_HOST>/manifest.webmanifest`, `https://<SERVER_HOST>/sw.js`
+- Internal API (тот же origin): `https://<SERVER_HOST>/api/health`

@@ -9,6 +9,15 @@ import { SETTLEMENTS } from '../utils/riverData';
 import { useAppStore } from '../store/appStore';
 import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
+import {
+  EXTERNAL_NETWORK_ALLOWED,
+  MAP_BASIN_STYLE_URL,
+  MAP_DEFAULT_TYPE,
+  MAP_SATELLITE_TILES_URL,
+  MAP_VECTOR_STYLE_URL,
+  NOMINATIM_ENABLED,
+  NOMINATIM_URL,
+} from '../config/runtimeConfig';
 
 type MapType = 'satellite' | 'vector' | 'basin' | 'local';
 type RiskLevel = 'normal' | 'watch' | 'warning' | 'danger';
@@ -66,7 +75,7 @@ function detectPhenomenonKind(notes?: string, locationName?: string): Phenomenon
   return 'unknown';
 }
 
-const MAP_STYLES: Record<string, any> = {
+const MAP_STYLES: Record<MapType, any> = {
   'local': {
     version: 8,
     sources: {},
@@ -77,15 +86,27 @@ const MAP_STYLES: Record<string, any> = {
     sources: {
       'esri-satellite': {
         type: 'raster',
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tiles: [MAP_SATELLITE_TILES_URL],
         tileSize: 256,
         attribution: 'Esri, Maxar, Earthstar Geographics'
       }
     },
     layers: [{ id: 'satellite', type: 'raster', source: 'esri-satellite', minzoom: 0, maxzoom: 22 }]
   },
-  'vector': 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-  'basin': '/frexosm_basin_style.json'
+  'vector': MAP_VECTOR_STYLE_URL,
+  'basin': MAP_BASIN_STYLE_URL,
+};
+
+const availableMapTypes = new Set<MapType>(['local']);
+if (EXTERNAL_NETWORK_ALLOWED && MAP_SATELLITE_TILES_URL) availableMapTypes.add('satellite');
+if (EXTERNAL_NETWORK_ALLOWED && MAP_VECTOR_STYLE_URL) availableMapTypes.add('vector');
+if (MAP_BASIN_STYLE_URL) availableMapTypes.add('basin');
+
+const resolveInitialMapType = (): MapType => {
+  const preferred = MAP_DEFAULT_TYPE as MapType;
+  if (availableMapTypes.has(preferred)) return preferred;
+  if (availableMapTypes.has('local')) return 'local';
+  return 'satellite';
 };
 
 // Memoized Marker Components for performance
@@ -206,7 +227,7 @@ export default function MapEditor() {
     }
   }, [mapCenter]);
   
-  const [mapType, setMapType] = useState<MapType>('satellite');
+  const [mapType, setMapType] = useState<MapType>(resolveInitialMapType());
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
   const [activePhenomenon, setActivePhenomenon] = useState<{
@@ -496,6 +517,12 @@ export default function MapEditor() {
   useEffect(() => {
     setViewState(prev => ({ ...prev, pitch: 0 }));
   }, [mapType]);
+
+  useEffect(() => {
+    if (!availableMapTypes.has(mapType)) {
+      setMapType(resolveInitialMapType());
+    }
+  }, [mapType]);
   
   const geojsonSource = useMemo(() => {
     // Keep map readable when DB is still empty: show neutral full-river line.
@@ -690,7 +717,16 @@ export default function MapEditor() {
       
       // Fallback: Reverse geocoding for exact coordinate (fixes interior clicks on broken geometries)
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.lngLat.lat}&lon=${e.lngLat.lng}&zoom=10&accept-language=ru`);
+        if (!NOMINATIM_ENABLED || !EXTERNAL_NETWORK_ALLOWED) {
+          setSelectedDistrict({
+            name: 'Район не определен (внешний геокодинг отключен)',
+            lngLat: [e.lngLat.lng, e.lngLat.lat],
+          });
+          return;
+        }
+        const url = `${NOMINATIM_URL}?format=json&lat=${e.lngLat.lat}&lon=${e.lngLat.lng}&zoom=10&accept-language=ru`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Reverse geocoding failed: ${res.status}`);
         const data = await res.json();
         if (data && data.address) {
           const districtName = data.address.county || data.address.state_district || data.address.city || data.address.town || 'Район не определен';
@@ -859,7 +895,8 @@ export default function MapEditor() {
         <Tooltip text="Спутниковые снимки ESRI" position="bottom">
           <button
             onClick={() => setMapType('satellite')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'satellite' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            disabled={!availableMapTypes.has('satellite')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded disabled:opacity-50 disabled:cursor-not-allowed ${mapType === 'satellite' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             Спутник
           </button>
@@ -868,7 +905,8 @@ export default function MapEditor() {
         <Tooltip text="Векторная карта OpenStreetMap" position="bottom">
           <button
             onClick={() => setMapType('vector')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'vector' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            disabled={!availableMapTypes.has('vector')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded disabled:opacity-50 disabled:cursor-not-allowed ${mapType === 'vector' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             Вектор
           </button>
@@ -876,7 +914,8 @@ export default function MapEditor() {
         <Tooltip text="Карта речных бассейнов" position="bottom">
           <button
             onClick={() => setMapType('basin')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'basin' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            disabled={!availableMapTypes.has('basin')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded disabled:opacity-50 disabled:cursor-not-allowed ${mapType === 'basin' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             Бассейны
           </button>
