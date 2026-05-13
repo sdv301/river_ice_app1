@@ -40,10 +40,10 @@ export function getSegments(upperEdge: [number, number] | null, lowerEdge: [numb
   const totalLength = turfLength(line, { units: 'kilometers' });
 
   if (!upperEdge && !lowerEdge) {
-    // All Ice
+    // No observations yet: render the full river with a neutral visible color.
     return [{
       ...line,
-      properties: { ...line.properties, color: '#f8fafc', status: 'ice' }
+      properties: { ...line.properties, color: '#60a5fa', status: 'no-data' }
     }];
   }
 

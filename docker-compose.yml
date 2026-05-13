@@ -22,7 +22,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     ports:
-      - "${PUBLIC_PORT:-6000}:${GATEWAY_PORT:-6000}"
+      - "${PUBLIC_PORT:-3030}:${GATEWAY_PORT:-6000}"
     volumes:
       - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
     networks:

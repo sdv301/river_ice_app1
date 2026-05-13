@@ -27,6 +27,28 @@ type RiskNotification = {
 };
 
 type PhenomenonKind = 'water' | 'drift' | 'freeze' | 'jam' | 'unknown';
+const PHENOMENON_INFO: Record<PhenomenonKind, { title: string; description: string }> = {
+  water: {
+    title: 'Чистая вода',
+    description: 'Участок свободен ото льда или наблюдается вода на льду.',
+  },
+  drift: {
+    title: 'Ледоход',
+    description: 'Наблюдается движение льда, подвижки, закраины или разводья.',
+  },
+  freeze: {
+    title: 'Ледостав',
+    description: 'Фиксируется устойчивый ледяной покров на участке реки.',
+  },
+  jam: {
+    title: 'Затор',
+    description: 'Обнаружено скопление льда с риском подпора воды.',
+  },
+  unknown: {
+    title: 'Не определено',
+    description: 'Есть отметка наблюдения, но тип явления не распознан.',
+  },
+};
 
 function detectPhenomenonKind(notes?: string, locationName?: string): PhenomenonKind {
   const text = `${notes ?? ''} ${locationName ?? ''}`.toLowerCase();
@@ -187,6 +209,12 @@ export default function MapEditor() {
   const [mapType, setMapType] = useState<MapType>('satellite');
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
+  const [activePhenomenon, setActivePhenomenon] = useState<{
+    id: string;
+    coords: [number, number];
+    kind: PhenomenonKind;
+    isCurrent: boolean;
+  } | null>(null);
   const [mapBounds, setMapBounds] = useState<[number, number, number, number] | null>(null);
   const [riskNotifications, setRiskNotifications] = useState<RiskNotification[]>([]);
   const previousSettlementRiskRef = useRef<globalThis.Map<string, number>>(new globalThis.Map<string, number>());
@@ -228,6 +256,11 @@ export default function MapEditor() {
     })),
   }), [observationPoints]);
   const currentDay = useMemo(() => new Date(currentDate).toISOString().slice(0, 10), [currentDate]);
+  const hasAnyObservations = observations.length > 0;
+  const hasObservationOnSelectedDay = useMemo(
+    () => observations.some((obs) => new Date(obs.date).toISOString().slice(0, 10) === currentDay),
+    [observations, currentDay]
+  );
   const phenomenonMarkers = useMemo(() => {
     return observations.map((obs) => {
       const kind = detectPhenomenonKind(obs.notes, obs.locationName);
@@ -465,12 +498,20 @@ export default function MapEditor() {
   }, [mapType]);
   
   const geojsonSource = useMemo(() => {
+    // Keep map readable when DB is still empty: show neutral full-river line.
+    // But when observations exist and selected day has no data, hide the river.
+    if (!hasAnyObservations) {
+      return generateGeoJSONSource(getSegments(null, null));
+    }
+    if (!hasObservationOnSelectedDay) {
+      return generateGeoJSONSource([]);
+    }
     const segments = getSegments(
       currentData?.upperEdgeCoords ?? null,
       currentData?.lowerEdgeCoords ?? null
     );
     return generateGeoJSONSource(segments);
-  }, [currentData]);
+  }, [currentData, hasAnyObservations, hasObservationOnSelectedDay]);
 
   const normalizeName = (name: string) => name.toLowerCase().replace(/ё/g, 'е').trim();
   const riskFromScore = (score: number): RiskLevel => {
@@ -962,6 +1003,7 @@ export default function MapEditor() {
 
         {viewState.zoom >= 5.8 && phenomenonMarkers.map((marker) => {
           const isCurrent = marker.day === currentDay;
+          const info = PHENOMENON_INFO[marker.kind];
           const Icon =
             marker.kind === 'water'
               ? Droplets
@@ -984,18 +1026,40 @@ export default function MapEditor() {
             marker.kind === 'jam' ? 'animate-ping' : marker.kind === 'freeze' ? 'animate-pulse' : 'animate-bounce';
           return (
             <Marker key={marker.id} longitude={marker.coords[0]} latitude={marker.coords[1]} anchor="center">
-              <div className="pointer-events-none">
+              <button
+                type="button"
+                title={`${info.title}: ${info.description}`}
+                onMouseEnter={() => setActivePhenomenon({
+                  id: marker.id,
+                  coords: marker.coords,
+                  kind: marker.kind,
+                  isCurrent,
+                })}
+                onMouseLeave={() => {
+                  setActivePhenomenon((prev) => (prev?.id === marker.id ? null : prev));
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActivePhenomenon({
+                    id: marker.id,
+                    coords: marker.coords,
+                    kind: marker.kind,
+                    isCurrent,
+                  });
+                }}
+                className="pointer-events-auto cursor-pointer"
+              >
                 <div className={`rounded-full border border-white/80 shadow-md ${toneClass} ${animationClass} ${
                   isCurrent ? 'w-5 h-5' : 'w-4 h-4 opacity-90'
                 } flex items-center justify-center`}>
                   <Icon className={isCurrent ? 'w-3 h-3' : 'w-2.5 h-2.5'} />
                 </div>
-              </div>
+              </button>
             </Marker>
           );
         })}
 
-        {currentData && (
+        {hasObservationOnSelectedDay && currentData && (
           <>
             <Marker longitude={currentData.upperEdgeCoords[0]} latitude={currentData.upperEdgeCoords[1]} anchor="bottom">
               {viewState.zoom >= 6 ? (
@@ -1145,6 +1209,31 @@ export default function MapEditor() {
             </div>
           </Popup>
         )}
+
+        {activePhenomenon && (
+          <Popup
+            longitude={activePhenomenon.coords[0]}
+            latitude={activePhenomenon.coords[1]}
+            anchor="bottom"
+            onClose={() => setActivePhenomenon(null)}
+            closeOnClick={false}
+            className="z-50"
+          >
+            <div className="max-w-[220px] px-1 py-0.5">
+              <div className="text-xs font-bold text-slate-800">
+                {PHENOMENON_INFO[activePhenomenon.kind].title}
+              </div>
+              <div className="text-[11px] text-slate-600 mt-0.5">
+                {PHENOMENON_INFO[activePhenomenon.kind].description}
+              </div>
+              {activePhenomenon.isCurrent && (
+                <div className="text-[10px] text-blue-700 font-semibold mt-1">
+                  Текущее состояние на выбранную дату
+                </div>
+              )}
+            </div>
+          </Popup>
+        )}
       </Map>
 
       {hoverInfo && hoverInfo.feature?.properties?.status && (
@@ -1158,8 +1247,13 @@ export default function MapEditor() {
           </div>
           <div>
             Статус: <span className="font-semibold text-blue-300">
-              {hoverInfo.feature.properties.status === 'water' ? 'Чистая вода' : 
-               hoverInfo.feature.properties.status === 'drift' ? 'Ледоход' : 'Ледостав'}
+              {hoverInfo.feature.properties.status === 'water'
+                ? 'Чистая вода'
+                : hoverInfo.feature.properties.status === 'drift'
+                  ? 'Ледоход'
+                  : hoverInfo.feature.properties.status === 'no-data'
+                    ? 'Нет данных'
+                    : 'Ледостав'}
             </span>
           </div>
         </div>

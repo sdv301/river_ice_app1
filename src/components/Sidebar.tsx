@@ -8,7 +8,7 @@ import { SETTLEMENTS } from '../utils/riverData';
 
 import SettlementInfoPanel from './SettlementInfoPanel';
 import { useAppStore } from '../store/appStore';
-import { AUTO_SYNC_INTERVAL_MS, getDefaultCurrentDate, useIceStore } from '../store/iceStore';
+import { getDefaultCurrentDate, useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
@@ -19,7 +19,7 @@ export default function Sidebar() {
     observations, currentDate, setCurrentDate, addObservation,
     jams, addJam, resolveJam, removeJam, getSectionSpeeds, getCustomSectionSpeed,
     draftJamCoords, setDraftJamCoords,
-    fetchFromYandexDisk, checkYandexForUpdates, isLoading, lastSyncTime, syncError, syncFileCount
+    fetchFromYandexDisk, isLoading, lastSyncTime, syncError, syncFileCount
   } = useIceStore();
 
   const {
@@ -244,14 +244,6 @@ export default function Sidebar() {
     }
     return () => window.clearInterval(interval);
   }, [isPlaying, currentDate, navigationMaxDate, setCurrentDate]);
-
-  useEffect(() => {
-    checkYandexForUpdates();
-    const timer = window.setInterval(() => {
-      checkYandexForUpdates();
-    }, AUTO_SYNC_INTERVAL_MS);
-    return () => window.clearInterval(timer);
-  }, [checkYandexForUpdates]);
 
   const handleExcelUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -523,7 +515,7 @@ export default function Sidebar() {
               </div>
             )}
             <div className="text-[10px] text-slate-500 text-center">
-              Фоновая автопроверка Яндекс.Диска: каждые 5 минут
+              Проверка данных выполняется через модуль базы данных
             </div>
 
             <div className="flex gap-2">
@@ -683,39 +675,45 @@ export default function Sidebar() {
 
           <div className="mt-6" data-tour="legend">
             <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Ледовые явления</h3>
-            <div className="grid grid-cols-2 gap-y-2 gap-x-1 text-xs">
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-blue-600 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Чистая вода</span>
+            <div className="space-y-1.5 text-xs">
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-blue-500"></span>
+                  <span className="text-slate-700 font-medium">Чистая вода</span>
+                </div>
+                <span className="text-[10px] text-slate-500">подпрыгивание</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-teal-100 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Закраины / Разводья</span>
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-cyan-500"></span>
+                  <span className="text-slate-700 font-medium">Ледоход</span>
+                </div>
+                <span className="text-[10px] text-slate-500">подпрыгивание</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-blue-400 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Редкий ледоход</span>
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-slate-300 border border-slate-400"></span>
+                  <span className="text-slate-700 font-medium">Ледостав</span>
+                </div>
+                <span className="text-[10px] text-slate-500">пульсация</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-blue-300 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Густой ледоход</span>
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-orange-500"></span>
+                  <span className="text-slate-700 font-medium">Затор</span>
+                </div>
+                <span className="text-[10px] text-slate-500">пульсирующее кольцо</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-slate-300 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Подвижки</span>
+              <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="w-3 h-3 rounded-full bg-slate-500"></span>
+                  <span className="text-slate-700 font-medium">Не определено</span>
+                </div>
+                <span className="text-[10px] text-slate-500">подпрыгивание</span>
               </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-orange-200 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Навалы льда</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-cyan-200 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Вода на льду</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <span className="w-3 h-3 bg-slate-100 border border-slate-300 rounded-sm inline-block shadow-sm"></span>
-                <span className="text-slate-600">Ледостав</span>
-              </div>
+            </div>
+            <div className="mt-2 text-[10px] text-slate-500">
+              Анимации соответствуют значкам на карте и помогают визуально отличать тип явления.
             </div>
           </div>
           <div className="mt-8 border-t border-slate-100 pt-6">

@@ -356,33 +356,95 @@ export const SETTLEMENT_COORDS: Record<string, [number, number]> = {
   'Курум': [113.70, 59.85],
 };
 
+const INVALID_POINT_TOKENS = new Set([
+  '',
+  'n/a',
+  'na',
+  '-',
+  '—',
+  'по состоянию на',
+  'по состоянию на:',
+]);
+
+const SETTLEMENT_ALIASES: Record<string, string> = {
+  // Common spreadsheet variants/typos from operational bulletins
+  'крестовское': 'Крестовский',
+  'саныяхтах': 'Саныяхтат',
+  '1-й нерюктяйинск': 'Нюя',
+  '1 нерюктяйинск': 'Нюя',
+  'дельгей': 'Солянка',
+  'кыллах': 'Олёкминск',
+  'хоринцы': 'Синск',
+  'урицкое': 'Хатынг-Тумул',
+};
+
+function normalizeSettlementName(name: string): string {
+  return String(name ?? '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[«»"'`]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isInvalidPointName(name: string): boolean {
+  const normalized = normalizeSettlementName(name).replace(/[.:;]+$/g, '').trim();
+  return INVALID_POINT_TOKENS.has(normalized);
+}
+
 /**
  * Resolve a settlement name to coordinates.
  * Tries exact match first, then partial/fuzzy match.
  */
 export function resolveSettlementCoords(name: string): [number, number] | null {
   if (!name) return null;
-  
-  const normalized = name.trim();
-  
+
+  const normalized = String(name).trim();
+  const normalizedKey = normalizeSettlementName(normalized);
+  if (isInvalidPointName(normalizedKey)) return null;
+
+  // Alias remap for known operational naming variants.
+  const aliased = SETTLEMENT_ALIASES[normalizedKey];
+  if (aliased && SETTLEMENT_COORDS[aliased]) {
+    return SETTLEMENT_COORDS[aliased];
+  }
+
   // Exact match
   if (SETTLEMENT_COORDS[normalized]) {
     return SETTLEMENT_COORDS[normalized];
   }
-  
-  // Case-insensitive match
-  const lowerName = normalized.toLowerCase();
+
+  // Case-insensitive + ё/е normalized match
   for (const [key, coords] of Object.entries(SETTLEMENT_COORDS)) {
-    if (key.toLowerCase() === lowerName) return coords;
+    if (normalizeSettlementName(key) === normalizedKey) return coords;
   }
-  
+
   // Partial match (settlement name contains search or vice versa)
   for (const [key, coords] of Object.entries(SETTLEMENT_COORDS)) {
-    if (key.toLowerCase().includes(lowerName) || lowerName.includes(key.toLowerCase())) {
+    const normalizedCandidate = normalizeSettlementName(key);
+    if (normalizedCandidate.includes(normalizedKey) || normalizedKey.includes(normalizedCandidate)) {
       return coords;
     }
   }
-  
+
+  // Stem-like match for frequent adjective ending drift:
+  // e.g. "Крестовское" vs "Крестовский"
+  const stem = normalizedKey
+    .replace(/(ский|ское|ская|ские|ских|скому|ским|скои|ской)$/u, 'ск')
+    .replace(/(ый|ий|ая|ое|ые|ой|ом|ам|ах)$/u, '')
+    .trim();
+  if (stem.length >= 4) {
+    for (const [key, coords] of Object.entries(SETTLEMENT_COORDS)) {
+      const candidate = normalizeSettlementName(key)
+        .replace(/(ский|ское|ская|ские|ских|скому|ским|скои|ской)$/u, 'ск')
+        .replace(/(ый|ий|ая|ое|ые|ой|ом|ам|ах)$/u, '')
+        .trim();
+      if (candidate.includes(stem) || stem.includes(candidate)) {
+        return coords;
+      }
+    }
+  }
+
   return null;
 }
 
@@ -501,7 +563,7 @@ function parseIceRows(rows: any[], fileName: string, fileModified?: string): Par
       // ---- Format 5: Hydro-bulletin (Река + Пункт, no/partial edge coordinates) ----
       // Case A: Neither upper nor lower coords found → use Пункт for both
       // Case B: Only one coord pair found → use Пункт for the missing one
-      if (pointName) {
+      if (pointName && !isInvalidPointName(pointName)) {
         const pointCoords = resolveSettlementCoords(pointName);
         if (pointCoords) {
           if (!upperCoords && !lowerCoords) {
@@ -524,9 +586,13 @@ function parseIceRows(rows: any[], fileName: string, fileModified?: string): Par
 
       // Skip if we couldn't resolve coordinates for either edge
       if (!upperCoords || !lowerCoords) {
-        console.warn(
-          `Не удалось определить координаты кромок: верх="${upperName || pointName || 'N/A'}", низ="${lowerName || pointName || 'N/A'}" (файл: ${fileName})`
-        );
+        const upperLabel = upperName || pointName || 'N/A';
+        const lowerLabel = lowerName || pointName || 'N/A';
+        if (!isInvalidPointName(upperLabel) && !isInvalidPointName(lowerLabel)) {
+          console.warn(
+            `Не удалось определить координаты кромок: верх="${upperLabel}", низ="${lowerLabel}" (файл: ${fileName})`
+          );
+        }
         continue;
       }
 
