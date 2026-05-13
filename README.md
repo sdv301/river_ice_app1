@@ -47,3 +47,47 @@
 
 ## 🤝 Разработка
 В корне проекта находится `vite.config.ts`, в котором уже настроены `tailwindcss` плагины и конфигурации `VitePWA` для offline-кэширования доменов Esri, Carto и AWS Terrain.
+
+## 🐳 Деплой на сервер через Docker (порт 6000)
+
+Стек деплоя настроен так, чтобы снаружи был доступен только один порт `6000`, а внутренние сервисы работали в отдельной Docker-сети.
+
+### Что добавлено
+- `Dockerfile` - multi-stage сборка Vite и запуск статики в контейнере `webapp`.
+- `docker-compose.yml` - два основных сервиса:
+  - `webapp` (внутренний, без публикации порта наружу);
+  - `gateway` (внешняя точка входа на `6000`, проксирует в `webapp`).
+- `deploy/nginx.conf` - reverse proxy для внешнего входа.
+- `deploy/webapp.nginx.conf` - статическая раздача `dist` с учетом PWA-файлов и `database.html`.
+- `deploy/.env.server.example` - шаблон серверных переменных.
+
+### Быстрый запуск на сервере
+1. Скопируйте шаблон переменных:
+   ```bash
+   cp deploy/.env.server.example .env
+   ```
+2. Поднимите сервисы:
+   ```bash
+   docker compose --env-file .env up -d --build
+   ```
+3. Проверьте состояние:
+   ```bash
+   docker compose ps
+   docker compose logs --tail=100 gateway webapp
+   ```
+
+### Опциональные внутренние процессы (если не готовы - не блокируют запуск)
+По умолчанию стартуют только основные сервисы (`gateway` + `webapp`).
+
+Профиль `optional-checks` запускается отдельно и не влияет на основной прод-запуск:
+```bash
+docker compose --profile optional-checks run --rm optional-lint
+```
+
+### Smoke-проверки после деплоя
+- Приложение доступно: `http://<SERVER_HOST>:6000/`
+- Второй entrypoint доступен: `http://<SERVER_HOST>:6000/database.html`
+- PWA-файлы отдаются без ошибок:
+  - `http://<SERVER_HOST>:6000/manifest.webmanifest`
+  - `http://<SERVER_HOST>:6000/sw.js`
+- После `docker compose restart` приложение снова открывается на `:6000`.
