@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import { SETTLEMENT_COORDS } from './yandexDisk';
+import { DATA_SOURCE_MODE, YANDEX_PUBLIC_KEY } from '../config/runtimeConfig';
 
 /**
  * Generate and download a comprehensive Excel template for ice observation data.
@@ -9,6 +10,10 @@ import { SETTLEMENT_COORDS } from './yandexDisk';
  *   Sheet 3: Mixed (settlement + optional geo override) — Дата, Верхняя кромка, Верх.Lng, Верх.Lat, Нижняя кромка, Низ.Lng, Низ.Lat, Примечания
  */
 export function downloadIceObservationTemplate() {
+  const uploadHint = DATA_SOURCE_MODE === 'yandex'
+    ? YANDEX_PUBLIC_KEY
+    : 'внутренний портал загрузки (настройте VITE_DATA_SOURCE/VITE_INTERNAL_DATA_API_BASE)';
+
   const wb = XLSX.utils.book_new();
 
   // ========================================================================
@@ -300,7 +305,7 @@ export function downloadIceObservationTemplate() {
     ['  1. Заполните любой из форматов (листы 2, 3 или 4)'],
     ['  2. Сохраните файл .xlsx'],
     ['  3. Загрузите в папку Яндекс.Диска:'],
-    ['     https://disk.yandex.ru/d/LENyBdYBr2B3rA'],
+    [`     ${uploadHint}`],
     ['  4. В приложении нажмите «Обновить данные»'],
     [''],
     ['  Готово! Карта обновится автоматически.'],

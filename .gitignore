@@ -8,3 +8,5 @@ coverage/
 !.env.example
 *.txt
 *.TXT
+!.env.production.example
+deploy/certs/*.pem

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { DATA_SOURCE_MODE } from '../config/runtimeConfig';
 
 export interface WaterLevelStation {
   id: string; // river_name
@@ -202,6 +203,15 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
     }
   },
   fetchFromYandexDisk: async (options = {}) => {
+    if (DATA_SOURCE_MODE === 'none') {
+      return {
+        fileCount: 0,
+        totalFiles: 0,
+        newDateCount: 0,
+        errors: ['Синхронизация отключена политикой безопасности'],
+        filesProcessed: [],
+      };
+    }
     const { fetchAllWaterLevelData } = await import('../utils/yandexDisk');
     set({ isSyncing: true, syncError: null });
     try {
@@ -280,6 +290,10 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
     }
   },
   checkYandexForUpdates: async (options = {}) => {
+    if (DATA_SOURCE_MODE === 'none') {
+      set({ isSyncing: false, syncError: null });
+      return false;
+    }
     const { fetchAllWaterLevelData } = await import('../utils/yandexDisk');
     const { lastDiskModified } = get();
     set({ isSyncing: true, syncError: null });

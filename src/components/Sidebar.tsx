@@ -13,8 +13,11 @@ import { useWaterLevelStore } from '../store/waterLevelStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
 import { downloadIceObservationTemplate } from '../utils/excelTemplates';
+import { DATA_SOURCE_MODE, YANDEX_PUBLIC_KEY } from '../config/runtimeConfig';
 
 export default function Sidebar() {
+  const isRemoteSyncEnabled = DATA_SOURCE_MODE !== 'none';
+  const isYandexMode = DATA_SOURCE_MODE === 'yandex';
   const {
     observations, currentDate, setCurrentDate, addObservation,
     jams, addJam, resolveJam, removeJam, getSectionSpeeds, getCustomSectionSpeed,
@@ -473,9 +476,9 @@ export default function Sidebar() {
                 await fetchFromYandexDisk();
                 reloadWaterData();
               }}
-              disabled={isLoading}
+              disabled={isLoading || !isRemoteSyncEnabled}
               className={`w-full font-medium py-2.5 rounded-lg shadow transition flex items-center justify-center gap-2 ${
-                isLoading 
+                isLoading || !isRemoteSyncEnabled
                   ? 'bg-amber-100 text-amber-700 cursor-wait' 
                   : 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600'
               }`}
@@ -485,7 +488,7 @@ export default function Sidebar() {
               ) : (
                 <RefreshCw className="w-4 h-4" />
               )}
-              {isLoading ? 'Загрузка...' : 'Обновить данные'}
+              {isLoading ? 'Загрузка...' : isRemoteSyncEnabled ? 'Обновить данные' : 'Синхронизация отключена'}
               <Cloud className="w-3.5 h-3.5 opacity-70" />
             </button>
 
@@ -547,15 +550,17 @@ export default function Sidebar() {
             </div>
 
             {/* Yandex Disk Link */}
-            <a 
-              href="https://disk.yandex.ru/d/LENyBdYBr2B3rA" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="w-full text-[10px] text-blue-500 hover:text-blue-700 flex items-center justify-center gap-1 py-1 transition-colors"
-            >
-              <Cloud className="w-3 h-3" />
-              Открыть папку Яндекс.Диска
-            </a>
+            {isYandexMode && (
+              <a 
+                href={YANDEX_PUBLIC_KEY}
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="w-full text-[10px] text-blue-500 hover:text-blue-700 flex items-center justify-center gap-1 py-1 transition-colors"
+              >
+                <Cloud className="w-3 h-3" />
+                Открыть папку Яндекс.Диска
+              </a>
+            )}
           </div>
         )}
 

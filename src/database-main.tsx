@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import DatabaseViewer from './components/DatabaseViewer';
 import { WATER_LEVEL_AUTO_SYNC_INTERVAL_MS, useWaterLevelStore } from './store/waterLevelStore';
+import { DATA_SOURCE_MODE } from './config/runtimeConfig';
 import './index.css';
 
 function DatabasePage() {
@@ -21,6 +22,7 @@ function DatabasePage() {
   }, [loadData]);
 
   React.useEffect(() => {
+    if (DATA_SOURCE_MODE === 'none') return;
     const timer = window.setInterval(() => {
       checkYandexForUpdates().catch(() => {});
     }, WATER_LEVEL_AUTO_SYNC_INTERVAL_MS);

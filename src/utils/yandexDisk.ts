@@ -1,10 +1,24 @@
 import * as XLSX from 'xlsx';
 import type { WaterLevelStation } from '../store/waterLevelStore';
 import { parseExcelData } from './excelParser';
+import {
+  DATA_SOURCE_MODE,
+  EXTERNAL_NETWORK_ALLOWED,
+  INTERNAL_DATA_API_BASE,
+  YANDEX_API_BASE,
+  YANDEX_PUBLIC_KEY,
+} from '../config/runtimeConfig';
 
-// Yandex Disk public folder link
-const YANDEX_PUBLIC_KEY = 'https://disk.yandex.ru/d/LENyBdYBr2B3rA';
-const YANDEX_API_BASE = 'https://cloud-api.yandex.net/v1/disk/public/resources';
+const yandexAllowed = (): boolean => DATA_SOURCE_MODE === 'yandex' && EXTERNAL_NETWORK_ALLOWED;
+
+const ensureDataSourceEnabled = () => {
+  if (DATA_SOURCE_MODE === 'none') {
+    throw new Error('Синхронизация отключена политикой безопасности (VITE_DATA_SOURCE=none)');
+  }
+  if (DATA_SOURCE_MODE === 'yandex' && !EXTERNAL_NETWORK_ALLOWED) {
+    throw new Error('Внешняя сеть отключена. Используйте внутренний API (VITE_DATA_SOURCE=internal)');
+  }
+};
 
 export interface YandexFile {
   name: string;
@@ -24,7 +38,10 @@ export interface FetchIceDataOptions {
  * List all files in the public Yandex Disk folder
  */
 export async function listYandexFiles(): Promise<YandexFile[]> {
-  const url = `${YANDEX_API_BASE}?public_key=${encodeURIComponent(YANDEX_PUBLIC_KEY)}&limit=100`;
+  ensureDataSourceEnabled();
+  const url = yandexAllowed()
+    ? `${YANDEX_API_BASE}?public_key=${encodeURIComponent(YANDEX_PUBLIC_KEY)}&limit=100`
+    : `${INTERNAL_DATA_API_BASE}/disk/files?limit=100`;
   
   const response = await fetch(url);
   if (!response.ok) {
@@ -32,7 +49,11 @@ export async function listYandexFiles(): Promise<YandexFile[]> {
   }
   
   const data = await response.json();
-  const items = data._embedded?.items || [];
+  const items = Array.isArray(data)
+    ? data
+    : Array.isArray(data.items)
+      ? data.items
+      : data._embedded?.items || [];
   
   // Filter for Excel files only
   return items.filter((item: any) => 
@@ -53,6 +74,11 @@ export async function listYandexFiles(): Promise<YandexFile[]> {
  * Get download link for a file in the public Yandex Disk folder
  */
 export async function getDownloadLink(filePath: string): Promise<string> {
+  ensureDataSourceEnabled();
+  if (!yandexAllowed()) {
+    return `${INTERNAL_DATA_API_BASE}/disk/file?path=${encodeURIComponent(filePath)}`;
+  }
+
   const url = `${YANDEX_API_BASE}/download?public_key=${encodeURIComponent(YANDEX_PUBLIC_KEY)}&path=${encodeURIComponent(filePath)}`;
   
   const response = await fetch(url);

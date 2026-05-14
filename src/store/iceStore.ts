@@ -4,6 +4,7 @@ import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/m
 import { nearestPointOnLine, point } from '@turf/turf';
 import { lenaRiverFeature } from '../utils/riverData';
 import { fetchAllIceData } from '../utils/yandexDisk';
+import { DATA_SOURCE_MODE } from '../config/runtimeConfig';
 
 export const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 // Absolute safety cap for clearly broken calculations (unit/parse issues).
@@ -266,6 +267,14 @@ export const useIceStore = create<IceStore>((set, get) => ({
   },
 
   fetchFromYandexDisk: async () => {
+    if (DATA_SOURCE_MODE === 'none') {
+      set({
+        isLoading: false,
+        lastSyncTime: new Date().toISOString(),
+        syncError: 'Синхронизация отключена политикой безопасности',
+      });
+      return;
+    }
     set({ isLoading: true, syncError: null });
     try {
       const result = await fetchAllIceData();
@@ -318,6 +327,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
   },
 
   checkYandexForUpdates: async () => {
+    if (DATA_SOURCE_MODE === 'none') {
+      set({ isLoading: false, syncError: null });
+      return false;
+    }
     const { lastDiskModified } = get();
     set({ isLoading: true, syncError: null });
     try {
