@@ -244,8 +244,10 @@ export async function fetchAllIceData(options: FetchIceDataOptions = {}): Promis
   for (const file of filteredFiles) {
     try {
       const rows = await downloadAndParseExcel(file.path);
-      const parsed = parseIceRows(rows, file.name, file.modified);
+      const fileWarnings: string[] = [];
+      const parsed = parseIceRows(rows, file.name, file.modified, fileWarnings);
       allObservations.push(...parsed);
+      errors.push(...fileWarnings);
     } catch (e: any) {
       errors.push(`${file.name}: ${e.message}`);
     }
@@ -518,6 +520,40 @@ function extractDateFromFileName(fileName: string): string | null {
 }
 
 /**
+ * При импорте с Яндекс.Диска: проверка, что координаты похожи на бассейн р. Лена.
+ * Сообщения попадают в `errors` синхронизации (и в консоль при отладке).
+ */
+function collectIceCoordinateWarnings(
+  fileName: string,
+  rowIndex: number,
+  label: string,
+  upper: [number, number],
+  lower: [number, number],
+): string[] {
+  const out: string[] = [];
+  const rowLabel = (label || `строка ${rowIndex + 1}`).trim();
+  const lngOk = (lng: number) => lng >= 95 && lng <= 150;
+  const latOk = (lat: number) => lat >= 48 && lat <= 78;
+
+  const check = (which: string, coords: [number, number]) => {
+    const [lng, lat] = coords;
+    if (!lngOk(lng) || !latOk(lat)) {
+      out.push(
+        `${fileName}: ${rowLabel} — ${which}: ${lng.toFixed(5)}° в.д., ${lat.toFixed(5)}° с.ш. вне ожидаемого диапазона для Лены (~95–150° и ~48–78°). Проверьте порядок колонок: сначала долгота (Lng), затем широта (Lat), без перестановки.`,
+      );
+    }
+  };
+  check('верхняя кромка', upper);
+  check('нижняя кромка', lower);
+
+  const d = Math.hypot(upper[0] - lower[0], upper[1] - lower[1]);
+  if (d < 1e-6) {
+    out.push(`${fileName}: ${rowLabel} — верхняя и нижняя кромка совпадают по координатам.`);
+  }
+  return out;
+}
+
+/**
  * Parse Excel rows into ice observation objects.
  * Supports FIVE formats:
  * 
@@ -543,10 +579,16 @@ function extractDateFromFileName(fileName: string): string | null {
  *   No explicit coordinates — resolved from Пункт via SETTLEMENT_COORDS.
  *   Date extracted from the file name.
  */
-function parseIceRows(rows: any[], fileName: string, fileModified?: string): ParsedObservation[] {
+function parseIceRows(
+  rows: any[],
+  fileName: string,
+  fileModified?: string,
+  coordWarnings?: string[],
+): ParsedObservation[] {
   const observations: ParsedObservation[] = [];
 
-  for (const row of rows) {
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
     try {
       const dateValue = row.Date || row['Дата'] || row.date;
 
@@ -662,6 +704,11 @@ function parseIceRows(rows: any[], fileName: string, fileModified?: string): Par
         upperSettlement,
         lowerSettlement,
       });
+      if (coordWarnings) {
+        coordWarnings.push(
+          ...collectIceCoordinateWarnings(fileName, i, locationName, upperCoords, lowerCoords),
+        );
+      }
     } catch (e) {
       console.warn('Ошибка парсинга строки:', e, row);
     }

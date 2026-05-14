@@ -442,26 +442,6 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
     const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const targetTime = new Date(currentDate).getTime();
-    const targetDay = new Date(currentDate).toISOString().slice(0, 10);
-
-    // Несколько строк за один календарный день (разные участки) — не интерполировать
-    // кромки между ними (получалась «линия» между далёкими широтами).
-    const sameDay = sorted.filter((o) => new Date(o.date).toISOString().slice(0, 10) === targetDay);
-    if (sameDay.length === 1) {
-      return { ...sameDay[0], exact: true };
-    }
-    if (sameDay.length > 1) {
-      let best = sameDay[0];
-      let bestAbs = Math.abs(new Date(best.date).getTime() - targetTime);
-      for (let i = 1; i < sameDay.length; i++) {
-        const abs = Math.abs(new Date(sameDay[i].date).getTime() - targetTime);
-        if (abs < bestAbs) {
-          best = sameDay[i];
-          bestAbs = abs;
-        }
-      }
-      return { ...best, exact: true };
-    }
 
     let before = sorted[0];
     let after = sorted[sorted.length - 1];

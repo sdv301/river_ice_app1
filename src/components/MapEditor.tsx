@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { getSegments, getMergedSegmentsForObservations, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
+import { getSegments, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
 import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera } from 'lucide-react';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
@@ -137,9 +137,9 @@ const StationMarker = React.memo(({
     textClass = 'text-amber-950';
     borderClass = 'border-amber-600';
   } else if (riskLevel === 'watch') {
-    colorClass = 'bg-blue-100';
-    textClass = 'text-blue-700';
-    borderClass = 'border-blue-300';
+    colorClass = 'bg-amber-300';
+    textClass = 'text-amber-950';
+    borderClass = 'border-amber-600';
   }
 
   return (
@@ -153,6 +153,7 @@ const StationMarker = React.memo(({
         {level} см
         {riskLevel === 'danger' && ' (ОЯ)'}
         {riskLevel === 'warning' && ' (НЯ)'}
+        {riskLevel === 'watch' && ' (Вним.)'}
       </div>
     </Marker>
   );
@@ -182,7 +183,7 @@ const SettlementMarker = React.memo(({
              : riskLevel === 'warning'
                ? 'text-yellow-100 fill-yellow-500 scale-125'
                : riskLevel === 'watch'
-                 ? 'text-slate-200 fill-slate-600'
+                 ? 'text-amber-900 fill-amber-400 scale-125 drop-shadow-[0_0_6px_rgba(251,191,36,0.95)]'
                  : settlement.isMajor
                    ? 'text-white fill-slate-800 scale-125'
                    : 'text-slate-200 fill-slate-600'
@@ -193,7 +194,7 @@ const SettlementMarker = React.memo(({
              : riskLevel === 'warning'
                ? 'text-yellow-50 bg-yellow-700/75 text-xs ring-1 ring-yellow-300/80'
                : riskLevel === 'watch'
-                 ? 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
+                 ? 'text-amber-950 bg-amber-300/95 text-xs ring-2 ring-amber-500 shadow-[0_0_14px_rgba(245,158,11,0.85)] animate-pulse'
                  : settlement.isMajor
                    ? 'text-white bg-slate-900/60 text-xs tracking-wide'
                    : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
@@ -201,6 +202,7 @@ const SettlementMarker = React.memo(({
            {settlement.name}
            {riskLevel === 'danger' && <span className="ml-1 text-[8px] px-1 bg-red-600 text-white rounded">ОЯ</span>}
            {riskLevel === 'warning' && <span className="ml-1 text-[8px] px-1 bg-amber-500 text-white rounded">НЯ</span>}
+           {riskLevel === 'watch' && <span className="ml-1 text-[8px] px-1 bg-amber-700 text-white rounded">Вним.</span>}
          </span>
        </div>
     </Marker>
@@ -322,11 +324,10 @@ export default function MapEditor() {
   }), [observationPoints]);
   const currentDay = useMemo(() => new Date(currentDate).toISOString().slice(0, 10), [currentDate]);
   const hasAnyObservations = observations.length > 0;
-  const observationsOnSelectedDay = useMemo(
-    () => observations.filter((o) => new Date(o.date).toISOString().slice(0, 10) === currentDay),
+  const hasObservationOnSelectedDay = useMemo(
+    () => observations.some((obs) => new Date(obs.date).toISOString().slice(0, 10) === currentDay),
     [observations, currentDay],
   );
-  const hasObservationOnSelectedDay = observationsOnSelectedDay.length > 0;
   const phenomenonMarkers = useMemo(() => {
     return observations.map((obs) => {
       const kind = detectPhenomenonKind(obs.notes, obs.locationName);
@@ -628,13 +629,12 @@ export default function MapEditor() {
     if (!hasObservationOnSelectedDay) {
       return generateGeoJSONSource([]);
     }
-    const pairs = observationsOnSelectedDay.map((o) => ({
-      upperEdgeCoords: o.upperEdgeCoords,
-      lowerEdgeCoords: o.lowerEdgeCoords,
-    }));
-    const segments = getMergedSegmentsForObservations(pairs);
+    const segments = getSegments(
+      currentData?.upperEdgeCoords ?? null,
+      currentData?.lowerEdgeCoords ?? null,
+    );
     return generateGeoJSONSource(segments);
-  }, [observationsOnSelectedDay, hasAnyObservations, hasObservationOnSelectedDay]);
+  }, [currentData, hasAnyObservations, hasObservationOnSelectedDay]);
 
   const normalizeName = (name: string) => name.toLowerCase().replace(/ё/g, 'е').trim();
   const riskFromScore = (score: number): RiskLevel => {
@@ -797,7 +797,13 @@ export default function MapEditor() {
       }
     }
 
-    if (typeof window !== 'undefined' && 'Notification' in window && !hasAskedNotificationPermissionRef.current && Notification.permission === 'default') {
+    if (
+      typeof window !== 'undefined' &&
+      window.isSecureContext &&
+      'Notification' in window &&
+      !hasAskedNotificationPermissionRef.current &&
+      Notification.permission === 'default'
+    ) {
       hasAskedNotificationPermissionRef.current = true;
       Notification.requestPermission().catch(() => {});
     }
@@ -1226,36 +1232,35 @@ export default function MapEditor() {
           );
         })}
 
-        {hasObservationOnSelectedDay &&
-          observationsOnSelectedDay.map((obs) => (
-            <React.Fragment key={obs.id}>
-              <Marker longitude={obs.upperEdgeCoords[0]} latitude={obs.upperEdgeCoords[1]} anchor="bottom">
-                {viewState.zoom >= 6 ? (
-                  <div className="flex flex-col items-center group cursor-help transition-transform hover:scale-110">
-                    <div className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-md shadow-md mb-1 whitespace-nowrap max-w-[200px] truncate" title={obs.locationName}>
-                      Верхняя кромка{observationsOnSelectedDay.length > 1 ? ' · участок' : ' (Вода)'}
-                    </div>
-                    <Droplets className="w-6 h-6 text-blue-500 drop-shadow-md" fill="currentColor" />
+        {hasObservationOnSelectedDay && currentData && (
+          <>
+            <Marker longitude={currentData.upperEdgeCoords[0]} latitude={currentData.upperEdgeCoords[1]} anchor="bottom">
+              {viewState.zoom >= 6 ? (
+                <div className="flex flex-col items-center group cursor-help transition-transform hover:scale-110">
+                  <div className="bg-blue-600 text-white text-xs font-bold px-2 py-1 rounded-md shadow-md mb-1 whitespace-nowrap">
+                    Верхняя кромка (Вода)
                   </div>
-                ) : (
-                  <div className="w-4 h-4 bg-blue-500 rounded-full border-[3px] border-white shadow-md shadow-blue-500/50"></div>
-                )}
-              </Marker>
+                  <Droplets className="w-6 h-6 text-blue-500 drop-shadow-md" fill="currentColor" />
+                </div>
+              ) : (
+                <div className="w-4 h-4 bg-blue-500 rounded-full border-[3px] border-white shadow-md shadow-blue-500/50"></div>
+              )}
+            </Marker>
 
-              <Marker longitude={obs.lowerEdgeCoords[0]} latitude={obs.lowerEdgeCoords[1]} anchor="bottom">
-                {viewState.zoom >= 6 ? (
-                  <div className="flex flex-col items-center group cursor-help transition-transform hover:scale-110">
-                    <div className="bg-slate-100 text-slate-800 text-xs text-center border border-slate-300 font-bold px-2 py-1 rounded-md shadow-md mb-1 whitespace-nowrap max-w-[200px] truncate" title={obs.locationName}>
-                      Нижняя кромка{observationsOnSelectedDay.length > 1 ? ' · участок' : ' (Лед)'}
-                    </div>
-                    <Snowflake className="w-6 h-6 text-slate-200 fill-slate-200 stroke-slate-300 drop-shadow-md" />
+            <Marker longitude={currentData.lowerEdgeCoords[0]} latitude={currentData.lowerEdgeCoords[1]} anchor="bottom">
+              {viewState.zoom >= 6 ? (
+                <div className="flex flex-col items-center group cursor-help transition-transform hover:scale-110">
+                  <div className="bg-slate-100 text-slate-800 text-xs text-center border border-slate-300 font-bold px-2 py-1 rounded-md shadow-md mb-1 whitespace-nowrap">
+                    Нижняя кромка (Лед)
                   </div>
-                ) : (
-                  <div className="w-4 h-4 bg-slate-300 rounded-full border-[3px] border-white shadow-md shadow-slate-500/50"></div>
-                )}
-              </Marker>
-            </React.Fragment>
-          ))}
+                  <Snowflake className="w-6 h-6 text-slate-200 fill-slate-200 stroke-slate-300 drop-shadow-md" />
+                </div>
+              ) : (
+                <div className="w-4 h-4 bg-slate-300 rounded-full border-[3px] border-white shadow-md shadow-slate-500/50"></div>
+              )}
+            </Marker>
+          </>
+        )}
 
         {jams.map(jam => (
           jam.status === 'active' && (
@@ -1446,11 +1451,11 @@ export default function MapEditor() {
       </div>
 
       {riskNotifications.length > 0 && (
-        <div className="absolute top-16 left-3 z-[200] flex flex-col gap-2 pointer-events-none">
+        <div className="fixed top-16 left-4 z-[10050] flex flex-col gap-2 max-w-[min(320px,calc(100vw-2rem))] pointer-events-none print-hide">
           {riskNotifications.map((n) => (
             <div
               key={n.id}
-              className={`text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[260px] ${
+              className={`pointer-events-auto text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[min(320px,calc(100vw-2rem))] ${
                 n.level === 'danger'
                   ? 'bg-red-600/95 text-white border-red-200/70'
                   : n.level === 'warning'
