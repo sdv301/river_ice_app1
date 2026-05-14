@@ -1,1 +1,2 @@
 deploy/docker-entrypoint.d/*.sh text eol=lf
+deploy/*.template text eol=lf

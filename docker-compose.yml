@@ -62,11 +62,15 @@ services:
       internal-data-api:
         condition: service_healthy
     restart: unless-stopped
-    # Host port → TLS inside container. Default 3030 if no `.env` (see deploy/server.env).
+    environment:
+      # Same value on host and in container (e.g. 3030:3030). Only this name is envsubst’d (see NGINX_ENVSUBST_FILTER).
+      GATEWAY_TLS_PORT: ${PUBLIC_PORT:-3030}
+      NGINX_ENVSUBST_FILTER: '^GATEWAY_TLS_PORT$'
+    # Host:container — один порт, TLS слушает тот же номер внутри gateway.
     ports:
-      - "${PUBLIC_PORT:-3030}:443"
+      - "${PUBLIC_PORT:-3030}:${PUBLIC_PORT:-3030}"
     volumes:
-      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./deploy/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       # Writable so 99-init-certs-if-missing.sh can create PEMs on first run if missing.
       - ./deploy/certs:/etc/nginx/certs
       - ./deploy/docker-entrypoint.d/99-init-certs-if-missing.sh:/docker-entrypoint.d/99-init-certs-if-missing.sh:ro
@@ -76,7 +80,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "wget -q --no-check-certificate -O /dev/null https://127.0.0.1/ || exit 1",
+          "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:${PUBLIC_PORT:-3030}/ || exit 1",
         ]
       interval: 30s
       timeout: 5s

@@ -48,9 +48,9 @@
 ## 🤝 Разработка
 В корне проекта находится `vite.config.ts`, в котором уже настроены `tailwindcss` плагины и конфигурации `VitePWA` (Workbox): кэширование same-origin путей `/tiles`, `/terrain`, `/fonts`, `/api` и опционально внешних хостов из `VITE_TILE_CACHE_HOSTS`.
 
-## 🐳 Деплой через Docker (внешний только HTTPS, порт 443)
+## 🐳 Деплой через Docker (внешний HTTPS, один порт)
 
-Снаружи открывается **один** порт (по умолчанию `443` на хосте → `443` в контейнере `gateway`). Внутри сети Docker работают:
+Снаружи открывается **один** порт: по умолчанию **`3030` на хосте → `3030` в контейнере `gateway`** (TLS на том же номере). Внутри сети Docker работают:
 
 - **`webapp`** — статика Vite (`/`).
 - **`internal-data-api`** — чтение Excel из `./internal-data` (`/api/*`).
@@ -60,7 +60,7 @@
 - `Dockerfile` — сборка фронта; аргументы `VITE_*` задаются из `.env` (см. `deploy/server.env.example`).
 - `deploy/Dockerfile.internal-data-api` — Node-сервис `/api/disk/*`.
 - `docker-compose.yml` — три сервиса + опциональный `optional-lint`.
-- `deploy/nginx.conf` — TLS на `:443`, `location /api/` → `internal-data-api:8787`, остальное → `webapp:8080`.
+- `deploy/default.conf.template` — шаблон `gateway`: TLS на `${GATEWAY_TLS_PORT}` (= `PUBLIC_PORT`), `location /api/` → `internal-data-api:8787`, остальное → `webapp:8080`.
 - `deploy/webapp.nginx.conf` — статика в образе `webapp`.
 - `deploy/server.env.example` — шаблон переменных для `docker compose`.
 - `deploy/init-certs.sh` — генерация самоподписанных сертификатов в `deploy/certs/` (для стенда; в проде подставьте свои PEM).
@@ -92,7 +92,7 @@ docker compose --profile optional-checks run --rm optional-lint
 ```
 
 ### Smoke-проверки
-- UI: `https://<SERVER_HOST>/` (или `https://<SERVER_HOST>:8443/` если задали `PUBLIC_PORT=8443`).
-- База уровней: `https://<SERVER_HOST>/database.html`
-- PWA: `https://<SERVER_HOST>/manifest.webmanifest`, `https://<SERVER_HOST>/sw.js`
-- Internal API (тот же origin): `https://<SERVER_HOST>/api/health`
+- UI: `https://<SERVER_HOST>:3030/` (или другой порт, если задали `PUBLIC_PORT`).
+- База уровней: `https://<SERVER_HOST>:3030/database.html`
+- PWA: `https://<SERVER_HOST>:3030/manifest.webmanifest`, `https://<SERVER_HOST>:3030/sw.js`
+- Internal API (тот же origin): `https://<SERVER_HOST>:3030/api/health`
