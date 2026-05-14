@@ -11,6 +11,15 @@ import {
 
 const yandexAllowed = (): boolean => DATA_SOURCE_MODE === 'yandex' && EXTERNAL_NETWORK_ALLOWED;
 
+/** File bytes: same-origin `/api/yandex/proxy` when using Yandex (avoids CORS on downloader.disk.yandex.ru). */
+async function fetchRemoteDiskFile(downloadUrl: string): Promise<Response> {
+  if (!yandexAllowed()) {
+    return fetch(downloadUrl);
+  }
+  const proxied = `${INTERNAL_DATA_API_BASE}/yandex/proxy?url=${encodeURIComponent(downloadUrl)}`;
+  return fetch(proxied);
+}
+
 const ensureDataSourceEnabled = () => {
   if (DATA_SOURCE_MODE === 'none') {
     throw new Error('Синхронизация отключена политикой безопасности (VITE_DATA_SOURCE=none)');
@@ -170,7 +179,7 @@ function parseSheetRows(ws: XLSX.WorkSheet): any[] {
 export async function downloadAndParseExcel(filePath: string): Promise<any[]> {
   const downloadUrl = await getDownloadLink(filePath);
   
-  const response = await fetch(downloadUrl);
+  const response = await fetchRemoteDiskFile(downloadUrl);
   if (!response.ok) {
     throw new Error(`Ошибка скачивания файла: ${response.status}`);
   }
@@ -835,7 +844,7 @@ export async function downloadAndParseWaterLevels(file: YandexFile): Promise<{
   year: number | null;
 }> {
   const downloadUrl = await getDownloadLink(file.path);
-  const response = await fetch(downloadUrl);
+  const response = await fetchRemoteDiskFile(downloadUrl);
   if (!response.ok) {
     throw new Error(`Ошибка скачивания файла: ${response.status}`);
   }

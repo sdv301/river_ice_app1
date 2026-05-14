@@ -12,6 +12,9 @@ server {
     listen ${GATEWAY_HTTP_PORT};
     server_name _;
 
+    # Yandex download URLs as query params on /api/yandex/proxy can be very long.
+    large_client_header_buffers 8 64k;
+
     location / {
         proxy_http_version 1.1;
         proxy_set_header Host $host;
@@ -23,6 +26,9 @@ server {
     }
 
     location /api/ {
+        proxy_buffer_size 128k;
+        proxy_buffers 8 256k;
+        proxy_busy_buffers_size 256k;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

@@ -72,6 +72,54 @@ app.get('/api/disk/file', async (req, res) => {
   }
 });
 
+/** Only Yandex Disk download hosts — avoids open SSRF via ?url=. */
+function isAllowedYandexDownloadUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'https:') return false;
+  const h = u.hostname.toLowerCase();
+  if (h === 'downloader.disk.yandex.ru') return true;
+  if (h.endsWith('.disk.yandex.ru')) return true;
+  if (h === 'getfile.disk.yandex.ru') return true;
+  if (h.endsWith('.getfile.disk.yandex.ru')) return true;
+  return false;
+}
+
+// Browser cannot fetch downloader.disk.yandex.ru (no CORS); same-origin proxy through gateway.
+app.get('/api/yandex/proxy', async (req, res) => {
+  const target = String(req.query.url ?? '');
+  if (!target) {
+    res.status(400).json({ error: 'Missing query parameter: url' });
+    return;
+  }
+  if (!isAllowedYandexDownloadUrl(target)) {
+    res.status(403).json({ error: 'URL host is not an allowed Yandex Disk download endpoint' });
+    return;
+  }
+
+  try {
+    const upstream = await fetch(target, {
+      redirect: 'follow',
+      headers: { 'User-Agent': 'river-ice-internal-data-api/yandex-proxy' },
+    });
+    const ct = upstream.headers.get('content-type') ?? 'application/octet-stream';
+    res.setHeader('Content-Type', ct);
+    if (!upstream.ok) {
+      const text = await upstream.text();
+      res.status(upstream.status).send(text);
+      return;
+    }
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    res.status(200).send(buf);
+  } catch (error: any) {
+    res.status(502).json({ error: error?.message ?? 'Upstream fetch failed' });
+  }
+});
+
 app.listen(port, host, () => {
   console.log(`Internal data API listening on http://${host}:${port}`);
   console.log(`Serving files from ${dataDir}`);
