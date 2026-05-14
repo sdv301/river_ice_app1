@@ -9,4 +9,3 @@ coverage/
 *.txt
 *.TXT
 !.env.production.example
-deploy/certs/*.pem
