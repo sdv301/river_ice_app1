@@ -11,6 +11,7 @@ import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import {
   EXTERNAL_NETWORK_ALLOWED,
+  MAP_ASSETS_BASE,
   MAP_BASIN_STYLE_URL,
   MAP_DEFAULT_TYPE,
   MAP_SATELLITE_TILES_URL,
@@ -18,6 +19,7 @@ import {
   NOMINATIM_ENABLED,
   NOMINATIM_URL,
 } from '../config/runtimeConfig';
+import { patchBasinStyleUrls, resolveBasinStyleAssetsBase } from '../utils/basinStyleAssets';
 
 type MapType = 'satellite' | 'vector' | 'basin' | 'local';
 type RiskLevel = 'normal' | 'watch' | 'warning' | 'danger';
@@ -232,6 +234,7 @@ export default function MapEditor() {
   }, [mapCenter]);
   
   const [mapType, setMapType] = useState<MapType>(resolveInitialMapType());
+  const [basinStyleSpec, setBasinStyleSpec] = useState<Record<string, unknown> | null>(null);
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
   const [activePhenomenon, setActivePhenomenon] = useState<{
@@ -250,6 +253,41 @@ export default function MapEditor() {
   const [cropStart, setCropStart] = useState<{x: number, y: number} | null>(null);
   const [customCropRect, setCustomCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const mapRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const styleUrl = typeof MAP_BASIN_STYLE_URL === 'string' ? MAP_BASIN_STYLE_URL : '';
+    if (!styleUrl) {
+      setBasinStyleSpec(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    fetch(styleUrl)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((raw) => {
+        if (cancelled) return;
+        setBasinStyleSpec(patchBasinStyleUrls(raw, resolveBasinStyleAssetsBase()));
+      })
+      .catch(() => {
+        if (!cancelled) setBasinStyleSpec(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [MAP_BASIN_STYLE_URL, EXTERNAL_NETWORK_ALLOWED, MAP_ASSETS_BASE]);
+
+  const resolvedMapStyle = useMemo(() => {
+    if (mapType === 'basin') {
+      if (basinStyleSpec) return basinStyleSpec;
+      return MAP_STYLES.local;
+    }
+    return MAP_STYLES[mapType] as (typeof MAP_STYLES)[MapType];
+  }, [mapType, basinStyleSpec]);
+
   const observationPoints = useMemo(() => {
     return observations.flatMap((obs) => {
       return [
@@ -943,7 +981,7 @@ export default function MapEditor() {
         ref={mapRef}
         initialViewState={viewState}
         onMoveEnd={onMoveEnd}
-        mapStyle={MAP_STYLES[mapType]}
+        mapStyle={resolvedMapStyle}
         interactiveLayerIds={['river-line', 'yakutia-district-fill']}
         cursor={cursorType}
         onClick={onMapClick}

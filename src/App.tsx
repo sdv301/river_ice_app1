@@ -90,7 +90,14 @@ const TOUR_STEPS: TourStep[] = [
 ];
 
 export default function App() {
-  const { observations, currentDate, getDailySpeed, setCurrentDate, loadYearData } = useIceStore();
+  const {
+    observations,
+    currentDate,
+    getDailySpeed,
+    setCurrentDate,
+    loadYearData,
+    checkYandexForUpdates: checkIceYandexForUpdates,
+  } = useIceStore();
   const {
     selectedSettlement, setSelectedSettlement,
     isAdmin, setIsAdmin,
@@ -99,7 +106,7 @@ export default function App() {
     isHelpOpen, setIsHelpOpen,
     setMapCenter,
   } = useAppStore();
-  const { loadData, checkYandexForUpdates } = useWaterLevelStore();
+  const { loadData, checkYandexForUpdates: checkWaterLevelsYandexForUpdates } = useWaterLevelStore();
   const [isDbOpen, setIsDbOpen] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
 
@@ -108,21 +115,25 @@ export default function App() {
     (async () => {
       await loadData();
       if (cancelled) return;
-      // The map should render immediately from the local database/snapshot.
-      // Remote Yandex Disk sync runs in the periodic 5-minute updater below.
+      // First sync from disk (Yandex or internal) after local snapshot is shown.
+      if (DATA_SOURCE_MODE !== 'none') {
+        checkWaterLevelsYandexForUpdates().catch(() => {});
+        checkIceYandexForUpdates().catch(() => {});
+      }
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadData]);
+  }, [loadData, checkWaterLevelsYandexForUpdates, checkIceYandexForUpdates]);
 
   React.useEffect(() => {
     if (DATA_SOURCE_MODE === 'none') return;
     const timer = window.setInterval(() => {
-      checkYandexForUpdates().catch(() => {});
+      checkWaterLevelsYandexForUpdates().catch(() => {});
+      checkIceYandexForUpdates().catch(() => {});
     }, WATER_LEVEL_AUTO_SYNC_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [checkYandexForUpdates]);
+  }, [checkWaterLevelsYandexForUpdates, checkIceYandexForUpdates]);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);

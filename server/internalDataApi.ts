@@ -35,6 +35,7 @@ app.get('/api/disk/files', async (_req, res) => {
           const absolute = path.resolve(dataDir, entry.name);
           const stat = await fs.stat(absolute);
           return {
+            type: 'file' as const,
             name: entry.name,
             path: entry.name,
             size: stat.size,

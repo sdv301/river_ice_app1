@@ -14,7 +14,9 @@ function DatabasePage() {
       // 1) Pull local DB/snapshot first to show data instantly.
       await loadData();
       if (cancelled) return;
-      // 2) Yandex Disk sync is handled by the periodic 5-minute updater below.
+      if (DATA_SOURCE_MODE !== 'none') {
+        checkYandexForUpdates().catch(() => {});
+      }
     })();
     return () => {
       cancelled = true;

@@ -55,19 +55,24 @@ export async function listYandexFiles(): Promise<YandexFile[]> {
       ? data.items
       : data._embedded?.items || [];
   
-  // Filter for Excel files only
-  return items.filter((item: any) => 
-    item.type === 'file' && 
-    (item.name.endsWith('.xlsx') || item.name.endsWith('.xls') || item.name.endsWith('.csv'))
-  ).map((item: any) => ({
-    name: item.name,
-    path: item.path,
-    size: item.size,
-    created: item.created,
-    modified: item.modified,
-    mime_type: item.mime_type || '',
-    file: item.file || null
-  }));
+  // Filter for Excel files only (Yandex API uses type === 'file'; internal API omits type before server fix)
+  const isFile = (item: any) => item.type === 'file' || item.type === undefined || item.type === null;
+  return items
+    .filter(
+      (item: any) =>
+        isFile(item) &&
+        typeof item.name === 'string' &&
+        (item.name.endsWith('.xlsx') || item.name.endsWith('.xls') || item.name.endsWith('.csv')),
+    )
+    .map((item: any) => ({
+      name: item.name,
+      path: item.path,
+      size: item.size,
+      created: item.created,
+      modified: item.modified,
+      mime_type: item.mime_type || '',
+      file: item.file || null,
+    }));
 }
 
 /**

@@ -48,33 +48,32 @@
 ## 🤝 Разработка
 В корне проекта находится `vite.config.ts`, в котором уже настроены `tailwindcss` плагины и конфигурации `VitePWA` (Workbox): кэширование same-origin путей `/tiles`, `/terrain`, `/fonts`, `/api` и опционально внешних хостов из `VITE_TILE_CACHE_HOSTS`.
 
-## 🐳 Деплой через Docker (внешний HTTPS, один порт)
+## 🐳 Деплой через Docker (внешний HTTP, один порт)
 
-Снаружи открывается **один** порт: по умолчанию **`3030` на хосте → `3030` в контейнере `gateway`** (TLS на том же номере). Внутри сети Docker работают:
+Снаружи открывается **один** порт: по умолчанию **`3030` на хосте → `3030` в контейнере `gateway`** (HTTP, без TLS). Внутри сети Docker работают:
 
 - **`webapp`** — статика Vite (`/`).
-- **`internal-data-api`** — чтение Excel из `./internal-data` (`/api/*`).
-- **`gateway`** — `nginx` с TLS, маршрутизация на сервисы выше.
+- **`internal-data-api`** — опционально: локальные Excel из `./internal-data` (`/api/disk/*`), если включён режим `VITE_DATA_SOURCE=internal`.
+- **`gateway`** — `nginx` без TLS, маршрутизация на сервисы выше.
+
+По умолчанию в образе включены **`VITE_DATA_SOURCE=yandex`** и **`VITE_ENABLE_EXTERNAL_NETWORK=true`**: автоподтягивание Excel с **публичной папки Яндекс.Диска** (браузер пользователя должен иметь исходящий HTTPS до `cloud-api.yandex.net` и ссылку из `VITE_YANDEX_PUBLIC_KEY`, см. `deploy/server.env.example`). Раз в 5 минут обновляются и уровни воды, и ледовые наблюдения.
 
 ### Файлы
 - `Dockerfile` — сборка фронта; аргументы `VITE_*` задаются из `.env` (см. `deploy/server.env.example`).
 - `deploy/Dockerfile.internal-data-api` — Node-сервис `/api/disk/*`.
 - `docker-compose.yml` — три сервиса + опциональный `optional-lint`.
-- `deploy/default.conf.template` — шаблон `gateway`: TLS на `${GATEWAY_TLS_PORT}` (= `PUBLIC_PORT`), `location /api/` → `internal-data-api:8787`, остальное → `webapp:8080`.
+- `deploy/default.conf.template` — шаблон `gateway`: HTTP на `${GATEWAY_HTTP_PORT}` (= `PUBLIC_PORT`), `location /api/` → `internal-data-api:8787`, остальное → `webapp:8080`.
 - `deploy/webapp.nginx.conf` — статика в образе `webapp`.
 - `deploy/server.env.example` — шаблон переменных для `docker compose`.
-- `deploy/init-certs.sh` — генерация самоподписанных сертификатов в `deploy/certs/` (для стенда; в проде подставьте свои PEM).
+- `deploy/init-certs.sh` — опционально, если снова включите HTTPS для gateway и положите PEM в `deploy/certs/`.
 
 ### Быстрый запуск
 1. Скопируйте переменные и при необходимости поправьте порт (на стенде без root часто удобно `PUBLIC_PORT=8443`):
    ```bash
    cp deploy/server.env.example .env
    ```
-2. Положите TLS-файлы в `deploy/certs/` (`fullchain.pem`, `privkey.pem`). Для локального стенда:
-   ```bash
-   sh deploy/init-certs.sh
-   ```
-3. Положите файлы `.xlsx` / `.xls` / `.csv` в каталог `internal-data/` на хосте (он монтируется в API только на чтение).
+2. (Опционально) Для HTTPS-режима gateway раньше использовались `deploy/certs/` — сейчас по умолчанию HTTP, сертификаты не нужны.
+3. Если используете режим **`internal`**, положите файлы `.xlsx` / `.xls` / `.csv` в каталог `internal-data/` на хосте (он монтируется в API только на чтение). Для **`yandex`** этот шаг не обязателен.
 4. Поднимите стек:
    ```bash
    docker compose --env-file .env up -d --build
@@ -92,7 +91,7 @@ docker compose --profile optional-checks run --rm optional-lint
 ```
 
 ### Smoke-проверки
-- UI: `https://<SERVER_HOST>:3030/` (или другой порт, если задали `PUBLIC_PORT`).
-- База уровней: `https://<SERVER_HOST>:3030/database.html`
-- PWA: `https://<SERVER_HOST>:3030/manifest.webmanifest`, `https://<SERVER_HOST>:3030/sw.js`
-- Internal API (тот же origin): `https://<SERVER_HOST>:3030/api/health`
+- UI: `http://<SERVER_HOST>:3030/` (или другой порт, если задали `PUBLIC_PORT`).
+- База уровней: `http://<SERVER_HOST>:3030/database.html`
+- PWA: `http://<SERVER_HOST>:3030/manifest.webmanifest`, `http://<SERVER_HOST>:3030/sw.js`
+- Internal API (тот же origin): `http://<SERVER_HOST>:3030/api/health`

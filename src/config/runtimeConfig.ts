@@ -20,6 +20,9 @@ export const MAP_VECTOR_STYLE_URL = import.meta.env.VITE_MAP_VECTOR_STYLE_URL
   ?? (EXTERNAL_NETWORK_ALLOWED ? 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json' : '');
 export const MAP_BASIN_STYLE_URL = import.meta.env.VITE_MAP_BASIN_STYLE_URL ?? '/frexosm_basin_style.json';
 
+/** If set, basin style relative paths (/tiles, /fonts, …) are prefixed (e.g. https://frexosm.ru). */
+export const MAP_ASSETS_BASE = trimTrailingSlash(import.meta.env.VITE_MAP_ASSETS_BASE ?? '');
+
 export const NOMINATIM_ENABLED = boolFromEnv(import.meta.env.VITE_NOMINATIM_ENABLED, EXTERNAL_NETWORK_ALLOWED);
 export const NOMINATIM_URL = import.meta.env.VITE_NOMINATIM_URL ?? 'https://nominatim.openstreetmap.org/reverse';
 

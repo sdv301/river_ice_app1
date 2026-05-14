@@ -4,13 +4,14 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        VITE_ENABLE_EXTERNAL_NETWORK: ${VITE_ENABLE_EXTERNAL_NETWORK:-false}
-        VITE_DATA_SOURCE: ${VITE_DATA_SOURCE:-internal}
+        VITE_ENABLE_EXTERNAL_NETWORK: ${VITE_ENABLE_EXTERNAL_NETWORK:-true}
+        VITE_DATA_SOURCE: ${VITE_DATA_SOURCE:-yandex}
         VITE_INTERNAL_DATA_API_BASE: ${VITE_INTERNAL_DATA_API_BASE:-/api}
         VITE_MAP_DEFAULT_TYPE: ${VITE_MAP_DEFAULT_TYPE:-local}
         VITE_MAP_SATELLITE_TILES_URL: ${VITE_MAP_SATELLITE_TILES_URL:-}
         VITE_MAP_VECTOR_STYLE_URL: ${VITE_MAP_VECTOR_STYLE_URL:-}
         VITE_MAP_BASIN_STYLE_URL: ${VITE_MAP_BASIN_STYLE_URL:-/frexosm_basin_style.json}
+        VITE_MAP_ASSETS_BASE: ${VITE_MAP_ASSETS_BASE:-https://frexosm.ru}
         VITE_NOMINATIM_ENABLED: ${VITE_NOMINATIM_ENABLED:-false}
         VITE_NOMINATIM_URL: ${VITE_NOMINATIM_URL:-}
     restart: unless-stopped
@@ -63,24 +64,20 @@ services:
         condition: service_healthy
     restart: unless-stopped
     environment:
-      # Same value on host and in container (e.g. 3030:3030). Only this name is envsubst’d (see NGINX_ENVSUBST_FILTER).
-      GATEWAY_TLS_PORT: ${PUBLIC_PORT:-3030}
-      NGINX_ENVSUBST_FILTER: '^GATEWAY_TLS_PORT$'
-    # Host:container — один порт, TLS слушает тот же номер внутри gateway.
+      # Same port host:container (e.g. 3030:3030). Only this name is envsubst’d (see NGINX_ENVSUBST_FILTER).
+      GATEWAY_HTTP_PORT: ${PUBLIC_PORT:-3030}
+      NGINX_ENVSUBST_FILTER: '^GATEWAY_HTTP_PORT$'
     ports:
       - "${PUBLIC_PORT:-3030}:${PUBLIC_PORT:-3030}"
     volumes:
       - ./deploy/default.conf.template:/etc/nginx/templates/default.conf.template:ro
-      # Writable so 99-init-certs-if-missing.sh can create PEMs on first run if missing.
-      - ./deploy/certs:/etc/nginx/certs
-      - ./deploy/docker-entrypoint.d/99-init-certs-if-missing.sh:/docker-entrypoint.d/99-init-certs-if-missing.sh:ro
     networks:
       - app_net
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:${PUBLIC_PORT:-3030}/ || exit 1",
+          "wget -q -O /dev/null http://127.0.0.1:${PUBLIC_PORT:-3030}/ || exit 1",
         ]
       interval: 30s
       timeout: 5s
