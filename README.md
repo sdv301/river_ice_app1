@@ -56,7 +56,7 @@
 - **`internal-data-api`** — опционально: локальные Excel из `./internal-data` (`/api/disk/*`), если включён режим `VITE_DATA_SOURCE=internal`.
 - **`gateway`** — `nginx` без TLS, маршрутизация на сервисы выше.
 
-По умолчанию в образе включены **`VITE_DATA_SOURCE=yandex`** и **`VITE_ENABLE_EXTERNAL_NETWORK=true`**: автоподтягивание Excel с **публичной папки Яндекс.Диска** (браузер пользователя должен иметь исходящий HTTPS до `cloud-api.yandex.net` и ссылку из `VITE_YANDEX_PUBLIC_KEY`, см. `deploy/server.env.example`). Раз в 5 минут обновляются и уровни воды, и ледовые наблюдения.
+По умолчанию в образе включены **`VITE_DATA_SOURCE=yandex`** и **`VITE_ENABLE_EXTERNAL_NETWORK=true`**: автоподтягивание Excel с **публичной папки Яндекс.Диска**. Список и скачивание файлов идут через **`internal-data-api`** (`/api/yandex/list`, `/api/yandex/file`) — **рабочий ПК в LAN может быть без интернета**, если **сервер с Docker** имеет исходящий HTTPS до Яндекса. Тайлы карт (спутник, вектор, бассейны с `frexosm.ru`) по-прежнему запрашиваются **браузером**; без интернета на ПК используйте карту «Офлайн» или VPN на ПК.
 
 ### Файлы
 - `Dockerfile` — сборка фронта; аргументы `VITE_*` задаются из `.env` (см. `deploy/server.env.example`).

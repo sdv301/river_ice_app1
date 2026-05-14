@@ -24,6 +24,9 @@ interface AppState {
   setIsPrintCropMode: (val: boolean) => void;
   printType: 'color' | 'bw';
   setPrintType: (type: 'color' | 'bw') => void;
+  /** Скорость по участку, выбранному по центру видимой области карты (null — не считали или нет данных). */
+  mapViewportIceSpeed: { speed: number; startLoc: string; endLoc: string } | null;
+  setMapViewportIceSpeed: (v: { speed: number; startLoc: string; endLoc: string } | null) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -51,4 +54,6 @@ export const useAppStore = create<AppState>((set) => ({
   setIsPrintCropMode: (val) => set({ isPrintCropMode: val }),
   printType: 'color',
   setPrintType: (type) => set({ printType: type }),
+  mapViewportIceSpeed: null,
+  setMapViewportIceSpeed: (v) => set({ mapViewportIceSpeed: v }),
 }));

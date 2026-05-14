@@ -1,31 +1,18 @@
 import * as XLSX from 'xlsx';
 import type { WaterLevelStation } from '../store/waterLevelStore';
 import { parseExcelData } from './excelParser';
+import { SETTLEMENTS } from './riverData';
 import {
   DATA_SOURCE_MODE,
-  EXTERNAL_NETWORK_ALLOWED,
   INTERNAL_DATA_API_BASE,
-  YANDEX_API_BASE,
-  YANDEX_PUBLIC_KEY,
 } from '../config/runtimeConfig';
 
-const yandexAllowed = (): boolean => DATA_SOURCE_MODE === 'yandex' && EXTERNAL_NETWORK_ALLOWED;
-
-/** File bytes: same-origin `/api/yandex/proxy` when using Yandex (avoids CORS on downloader.disk.yandex.ru). */
-async function fetchRemoteDiskFile(downloadUrl: string): Promise<Response> {
-  if (!yandexAllowed()) {
-    return fetch(downloadUrl);
-  }
-  const proxied = `${INTERNAL_DATA_API_BASE}/yandex/proxy?url=${encodeURIComponent(downloadUrl)}`;
-  return fetch(proxied);
-}
+/** Публичная папка Яндекс.Диска: список и скачивание идут через same-origin `/api/yandex/*` (сервер ходит в Яндекс). */
+const usePublicYandexDisk = (): boolean => DATA_SOURCE_MODE === 'yandex';
 
 const ensureDataSourceEnabled = () => {
   if (DATA_SOURCE_MODE === 'none') {
     throw new Error('Синхронизация отключена политикой безопасности (VITE_DATA_SOURCE=none)');
-  }
-  if (DATA_SOURCE_MODE === 'yandex' && !EXTERNAL_NETWORK_ALLOWED) {
-    throw new Error('Внешняя сеть отключена. Используйте внутренний API (VITE_DATA_SOURCE=internal)');
   }
 };
 
@@ -48,8 +35,8 @@ export interface FetchIceDataOptions {
  */
 export async function listYandexFiles(): Promise<YandexFile[]> {
   ensureDataSourceEnabled();
-  const url = yandexAllowed()
-    ? `${YANDEX_API_BASE}?public_key=${encodeURIComponent(YANDEX_PUBLIC_KEY)}&limit=100`
+  const url = usePublicYandexDisk()
+    ? `${INTERNAL_DATA_API_BASE}/yandex/list?limit=100`
     : `${INTERNAL_DATA_API_BASE}/disk/files?limit=100`;
   
   const response = await fetch(url);
@@ -85,23 +72,14 @@ export async function listYandexFiles(): Promise<YandexFile[]> {
 }
 
 /**
- * Get download link for a file in the public Yandex Disk folder
+ * Same-origin URL to download file bytes (локальный каталог или прокси Яндекс через internal-data-api).
  */
-export async function getDownloadLink(filePath: string): Promise<string> {
+export function getDiskFileFetchUrl(filePath: string): string {
   ensureDataSourceEnabled();
-  if (!yandexAllowed()) {
+  if (!usePublicYandexDisk()) {
     return `${INTERNAL_DATA_API_BASE}/disk/file?path=${encodeURIComponent(filePath)}`;
   }
-
-  const url = `${YANDEX_API_BASE}/download?public_key=${encodeURIComponent(YANDEX_PUBLIC_KEY)}&path=${encodeURIComponent(filePath)}`;
-  
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Ошибка получения ссылки на скачивание: ${response.status}`);
-  }
-  
-  const data = await response.json();
-  return data.href;
+  return `${INTERNAL_DATA_API_BASE}/yandex/file?path=${encodeURIComponent(filePath)}`;
 }
 
 /**
@@ -177,9 +155,7 @@ function parseSheetRows(ws: XLSX.WorkSheet): any[] {
 }
 
 export async function downloadAndParseExcel(filePath: string): Promise<any[]> {
-  const downloadUrl = await getDownloadLink(filePath);
-  
-  const response = await fetchRemoteDiskFile(downloadUrl);
+  const response = await fetch(getDiskFileFetchUrl(filePath));
   if (!response.ok) {
     throw new Error(`Ошибка скачивания файла: ${response.status}`);
   }
@@ -394,6 +370,15 @@ export const SETTLEMENT_COORDS: Record<string, [number, number]> = {
   'Иннялы': [119.00, 60.00],
   'Комака': [116.00, 60.10],
   'Курум': [113.70, 59.85],
+
+  // Гидробюллетень — доп. пункты (часто нет в SETTLEMENTS)
+  'Дабан': [119.214, 60.132],
+  'Исит': [125.326, 60.813],
+  'Исить': [125.326, 60.813],
+  'Кытыл-Дюра': [126.026, 60.97],
+  'Кытыл Дюра': [126.026, 60.97],
+  'Едей': [129.41, 62.51],
+  'Едяй': [129.41, 62.51],
 };
 
 const INVALID_POINT_TOKENS = new Set([
@@ -416,6 +401,8 @@ const SETTLEMENT_ALIASES: Record<string, string> = {
   'кыллах': 'Олёкминск',
   'хоринцы': 'Синск',
   'урицкое': 'Хатынг-Тумул',
+  'исить': 'Исить',
+  'исит': 'Исит',
 };
 
 function normalizeSettlementName(name: string): string {
@@ -483,6 +470,16 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
         return coords;
       }
     }
+  }
+
+  // Fallback: major settlements from riverData (names not duplicated in SETTLEMENT_COORDS)
+  for (const s of SETTLEMENTS) {
+    const sn = normalizeSettlementName(s.name);
+    if (sn === normalizedKey) return s.coords;
+  }
+  for (const s of SETTLEMENTS) {
+    const sn = normalizeSettlementName(s.name);
+    if (sn.includes(normalizedKey) || normalizedKey.includes(sn)) return s.coords;
   }
 
   return null;
@@ -843,8 +840,7 @@ export async function downloadAndParseWaterLevels(file: YandexFile): Promise<{
   stations: WaterLevelStation[];
   year: number | null;
 }> {
-  const downloadUrl = await getDownloadLink(file.path);
-  const response = await fetchRemoteDiskFile(downloadUrl);
+  const response = await fetch(getDiskFileFetchUrl(file.path));
   if (!response.ok) {
     throw new Error(`Ошибка скачивания файла: ${response.status}`);
   }

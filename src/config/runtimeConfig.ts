@@ -20,13 +20,16 @@ export const EXTERNAL_NETWORK_ALLOWED = boolFromEnv(
 export const DATA_SOURCE_MODE = (import.meta.env.VITE_DATA_SOURCE ?? (import.meta.env.PROD ? 'internal' : 'yandex')).toLowerCase();
 export const INTERNAL_DATA_API_BASE = trimTrailingSlash(import.meta.env.VITE_INTERNAL_DATA_API_BASE ?? '/api');
 
-export const MAP_DEFAULT_TYPE = (import.meta.env.VITE_MAP_DEFAULT_TYPE ?? (EXTERNAL_NETWORK_ALLOWED ? 'satellite' : 'local')).toLowerCase();
+/** По умолчанию спутник: тайлы идут через `/api/tiles/arcgis` (сервер → Esri), браузеру не нужен прямой выход в интернет. */
+export const MAP_DEFAULT_TYPE = (import.meta.env.VITE_MAP_DEFAULT_TYPE ?? 'satellite').toLowerCase();
+/** Default via same-origin proxy so the browser does not hit Esri directly (avoids CORS on LAN origins). */
 export const MAP_SATELLITE_TILES_URL =
   viteString(import.meta.env.VITE_MAP_SATELLITE_TILES_URL) ??
-  (EXTERNAL_NETWORK_ALLOWED ? 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}' : '');
+  `${INTERNAL_DATA_API_BASE}/tiles/arcgis/{z}/{y}/{x}`;
+/** Вектор: URL остаётся Carto; загрузка идёт через `transformRequest` → `/api/map/fetch` (сервер → Carto). */
 export const MAP_VECTOR_STYLE_URL =
   viteString(import.meta.env.VITE_MAP_VECTOR_STYLE_URL) ??
-  (EXTERNAL_NETWORK_ALLOWED ? 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json' : '');
+  'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 export const MAP_BASIN_STYLE_URL = import.meta.env.VITE_MAP_BASIN_STYLE_URL ?? '/frexosm_basin_style.json';
 
 /** If set, basin style relative paths (/tiles, /fonts, …) are prefixed (e.g. https://frexosm.ru). */

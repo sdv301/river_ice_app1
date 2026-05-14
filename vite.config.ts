@@ -49,7 +49,8 @@ export default defineConfig(({mode}) => {
               }
             },
             {
-              urlPattern: /^https?:\/\/[^/]+\/api\/.*/i,
+              // Не кэшировать прокси карт — иначе после смены сети/VPN отдаются устаревшие ответы
+              urlPattern: /^https?:\/\/[^/]+\/api\/(?!map\/fetch).*/i,
               handler: 'CacheFirst',
               options: {
                 cacheName: 'internal-api-cache',

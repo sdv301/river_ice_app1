@@ -40,6 +40,8 @@ services:
     environment:
       INTERNAL_DATA_HOST: ${INTERNAL_DATA_HOST:-0.0.0.0}
       INTERNAL_DATA_DIR: ${INTERNAL_DATA_DIR:-/data}
+      YANDEX_PUBLIC_KEY: ${VITE_YANDEX_PUBLIC_KEY:-https://disk.yandex.ru/d/LENyBdYBr2B3rA}
+      YANDEX_API_BASE: ${VITE_YANDEX_API_BASE:-https://cloud-api.yandex.net/v1/disk/public/resources}
     volumes:
       - ./internal-data:/data:ro
     networks:

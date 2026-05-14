@@ -1,10 +1,9 @@
-import { EXTERNAL_NETWORK_ALLOWED, MAP_ASSETS_BASE } from '../config/runtimeConfig';
+import { MAP_ASSETS_BASE } from '../config/runtimeConfig';
 
-/** Absolute base for basin style relative URLs (/tiles, /fonts, …). */
+/** Absolute base for basin style relative URLs (/tiles, /fonts, …). Браузер не ходит на frexosm напрямую — см. `mapTransformRequest`. */
 export function resolveBasinStyleAssetsBase(): string {
   if (MAP_ASSETS_BASE) return MAP_ASSETS_BASE;
-  if (EXTERNAL_NETWORK_ALLOWED) return 'https://frexosm.ru';
-  return '';
+  return 'https://frexosm.ru';
 }
 
 function withAssetBase(base: string, url: string): string {

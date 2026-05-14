@@ -439,13 +439,30 @@ export const useIceStore = create<IceStore>((set, get) => ({
   getCurrentObservationData() {
     const { observations, currentDate } = get();
     if (observations.length === 0) return null;
-    
-    // Sort array just in case
+
     const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
     const targetTime = new Date(currentDate).getTime();
-    
-    // Find before and after
+    const targetDay = new Date(currentDate).toISOString().slice(0, 10);
+
+    // Несколько строк за один календарный день (разные участки) — не интерполировать
+    // кромки между ними (получалась «линия» между далёкими широтами).
+    const sameDay = sorted.filter((o) => new Date(o.date).toISOString().slice(0, 10) === targetDay);
+    if (sameDay.length === 1) {
+      return { ...sameDay[0], exact: true };
+    }
+    if (sameDay.length > 1) {
+      let best = sameDay[0];
+      let bestAbs = Math.abs(new Date(best.date).getTime() - targetTime);
+      for (let i = 1; i < sameDay.length; i++) {
+        const abs = Math.abs(new Date(sameDay[i].date).getTime() - targetTime);
+        if (abs < bestAbs) {
+          best = sameDay[i];
+          bestAbs = abs;
+        }
+      }
+      return { ...best, exact: true };
+    }
+
     let before = sorted[0];
     let after = sorted[sorted.length - 1];
 
@@ -453,27 +470,25 @@ export const useIceStore = create<IceStore>((set, get) => ({
     if (targetTime >= new Date(after.date).getTime()) return { ...after, exact: true };
 
     for (let i = 0; i < sorted.length - 1; i++) {
-        const time1 = new Date(sorted[i].date).getTime();
-        const time2 = new Date(sorted[i+1].date).getTime();
-        
-        if (targetTime >= time1 && targetTime <= time2) {
-            before = sorted[i];
-            after = sorted[i+1];
-            break;
-        }
+      const time1 = new Date(sorted[i].date).getTime();
+      const time2 = new Date(sorted[i + 1].date).getTime();
+
+      if (targetTime >= time1 && targetTime <= time2) {
+        before = sorted[i];
+        after = sorted[i + 1];
+        break;
+      }
     }
 
-    // Interpolate distance along the river between before and after
     const time1 = new Date(before.date).getTime();
     const time2 = new Date(after.date).getTime();
     const progress = (targetTime - time1) / (time2 - time1);
 
     return {
-        date: currentDate,
-        // Using turf along & length for exact river contour instead of straight lines
-        upperEdgeCoords: interpolateAlongRiver(before.upperEdgeCoords, after.upperEdgeCoords, progress),
-        lowerEdgeCoords: interpolateAlongRiver(before.lowerEdgeCoords, after.lowerEdgeCoords, progress),
-        exact: false,
+      date: currentDate,
+      upperEdgeCoords: interpolateAlongRiver(before.upperEdgeCoords, after.upperEdgeCoords, progress),
+      lowerEdgeCoords: interpolateAlongRiver(before.lowerEdgeCoords, after.lowerEdgeCoords, progress),
+      exact: false,
     };
   },
 

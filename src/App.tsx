@@ -105,6 +105,7 @@ export default function App() {
     isSidebarOpen, setIsSidebarOpen,
     isHelpOpen, setIsHelpOpen,
     setMapCenter,
+    mapViewportIceSpeed,
   } = useAppStore();
   const { loadData, checkYandexForUpdates: checkWaterLevelsYandexForUpdates } = useWaterLevelStore();
   const [isDbOpen, setIsDbOpen] = useState(false);
@@ -166,7 +167,8 @@ export default function App() {
     loadYearData(selectedYear);
   }, [selectedYear, loadYearData]);
 
-  const currentSpeed = getDailySpeed();
+  const dailySpeed = getDailySpeed();
+  const currentSpeed = mapViewportIceSpeed ?? dailySpeed;
 
   const handleStartTour = useCallback(() => {
     // Ensure sidebar is open for the tour
@@ -206,7 +208,10 @@ export default function App() {
               </svg>
             </div>
             <div>
-              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">Скорость ледохода (на участке)</div>
+              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">
+                Скорость ледохода
+                {mapViewportIceSpeed ? ' (участок у центра карты)' : ' (средняя по сроку)'}
+              </div>
               <div className="text-2xl font-black text-slate-800 leading-tight flex items-baseline gap-1">
                 {currentSpeed.speed.toFixed(1)} <span className="text-xs font-bold text-slate-400 uppercase">км/сутки</span>
               </div>
