@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { DATA_SOURCE_MODE } from '../config/runtimeConfig';
+import { DATA_SOURCE_MODE, publicAssetUrl } from '../config/runtimeConfig';
 
 export interface WaterLevelStation {
   id: string; // river_name
@@ -186,7 +186,7 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
       set({ stations: snapshot, isLoaded: true });
     }
     try {
-      const res = await fetch('/water_levels_db.json');
+      const res = await fetch(publicAssetUrl('water_levels_db.json'));
       const data = await res.json();
       const baseStations: WaterLevelStation[] = data.stations || [];
       const overrides = readOverridesFromStorage();

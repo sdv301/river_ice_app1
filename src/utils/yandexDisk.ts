@@ -520,6 +520,20 @@ function extractDateFromFileName(fileName: string): string | null {
 }
 
 /**
+ * Две ячейки из Excel (часто «широта» слева, «долгота» справа или наоборот) → [lng, lat] в WGS-84.
+ * Если пара (a,b) как (долгота, широта) не попадает в район Лены, пробуем перестановку.
+ */
+function inferLngLatPair(a: number | null, b: number | null): [number, number] | null {
+  if (a === null || b === null) return null;
+  const lenaLng = (lng: number) => lng >= 88 && lng <= 155;
+  const lenaLat = (lat: number) => lat >= 48 && lat <= 78;
+  const plausible = (lng: number, lat: number) => lenaLng(lng) && lenaLat(lat);
+  if (plausible(a, b)) return [a, b];
+  if (plausible(b, a)) return [b, a];
+  return normalizeWgs84Coords(a, b);
+}
+
+/**
  * При импорте с Яндекс.Диска: проверка, что координаты похожи на бассейн р. Лена.
  * Сообщения попадают в `errors` синхронизации (и в консоль при отладке).
  */
@@ -549,6 +563,10 @@ function collectIceCoordinateWarnings(
   const d = Math.hypot(upper[0] - lower[0], upper[1] - lower[1]);
   if (d < 1e-6) {
     out.push(`${fileName}: ${rowLabel} — верхняя и нижняя кромка совпадают по координатам.`);
+  } else if (d < 0.05) {
+    out.push(
+      `${fileName}: ${rowLabel} — верх и низ очень близко на карте (${(d * 111).toFixed(0)} км по прямой). Проверьте, что в файле две разные пары «широта/долгота» и что столбцы не перепутаны.`,
+    );
   }
   return out;
 }
@@ -594,6 +612,8 @@ function parseIceRows(
 
       let upperCoords: [number, number] | null = null;
       let lowerCoords: [number, number] | null = null;
+      let upperFromNumeric = false;
+      let lowerFromNumeric = false;
       let upperSettlement: string | undefined;
       let lowerSettlement: string | undefined;
       let locationName = '';
@@ -602,25 +622,50 @@ function parseIceRows(
       const upperLng = extractNum(row, ['UpperLng', 'Верх.Долгота (Lng)', 'Верх.Lng', 'upperLng', 'upper_lng']);
       const upperLat = extractNum(row, ['UpperLat', 'Верх.Широта (Lat)', 'Верх.Lat', 'upperLat', 'upper_lat']);
 
-      upperCoords = normalizeWgs84Coords(upperLng, upperLat);
+      upperCoords = inferLngLatPair(upperLng, upperLat);
+      if (upperLng !== null && upperLat !== null && upperCoords) upperFromNumeric = true;
 
       // ---- Try to extract lower edge coordinates ----
       const lowerLng = extractNum(row, ['LowerLng', 'Низ.Долгота (Lng)', 'Низ.Lng', 'lowerLng', 'lower_lng']);
       const lowerLat = extractNum(row, ['LowerLat', 'Низ.Широта (Lat)', 'Низ.Lat', 'lowerLat', 'lower_lat']);
 
-      lowerCoords = normalizeWgs84Coords(lowerLng, lowerLat);
+      lowerCoords = inferLngLatPair(lowerLng, lowerLat);
+      if (lowerLng !== null && lowerLat !== null && lowerCoords) lowerFromNumeric = true;
 
-      // Format 4: "Шаблон 2.xlsx" with duplicate headers in one row:
-      // Широта/Долгота (нижняя кромка) + Широта__2/Долгота__2 (верхняя кромка)
+      // Format 4: шаблон — сначала узкие имена колонок, чтобы не перепутать две пары «Широта/Долгота»
       if (!lowerCoords) {
-        const tplLowerLat = extractNum(row, ['Широта']);
-        const tplLowerLng = extractNum(row, ['Долгота']);
-        lowerCoords = normalizeWgs84Coords(tplLowerLng, tplLowerLat);
+        const tplLat = extractNum(row, [
+          'Широта (нижняя кромка)',
+          'Нижняя широта',
+          'Широта нижней кромки',
+          'Широта',
+        ]);
+        const tplLng = extractNum(row, [
+          'Долгота (нижняя кромка)',
+          'Нижняя долгота',
+          'Долгота нижней кромки',
+          'Долгота',
+        ]);
+        lowerCoords = inferLngLatPair(tplLng, tplLat);
+        if (tplLng !== null && tplLat !== null && lowerCoords) lowerFromNumeric = true;
       }
       if (!upperCoords) {
-        const tplUpperLat = extractNum(row, ['Широта__2']);
-        const tplUpperLng = extractNum(row, ['Долгота__2']);
-        upperCoords = normalizeWgs84Coords(tplUpperLng, tplUpperLat);
+        const tplLat = extractNum(row, [
+          'Широта (верхняя кромка)',
+          'Верхняя широта',
+          'Широта верхней кромки',
+          'Широта__2',
+          'Широта_2',
+        ]);
+        const tplLng = extractNum(row, [
+          'Долгота (верхняя кромка)',
+          'Верхняя долгота',
+          'Долгота верхней кромки',
+          'Долгота__2',
+          'Долгота_2',
+        ]);
+        upperCoords = inferLngLatPair(tplLng, tplLat);
+        if (tplLng !== null && tplLat !== null && upperCoords) upperFromNumeric = true;
       }
 
       // ---- Try to resolve settlement names ----
@@ -656,9 +701,7 @@ function parseIceRows(
         locationName = [upperSettlement, lowerSettlement].filter(Boolean).join(' – ');
       }
 
-      // ---- Format 5: Hydro-bulletin (Река + Пункт, no/partial edge coordinates) ----
-      // Case A: Neither upper nor lower coords found → use Пункт for both
-      // Case B: Only one coord pair found → use Пункт for the missing one
+      // ---- Format 5: Пункт — только если нет координат из чисел; иначе не подставлять пункт в «дыру» (слипание кромок) ----
       if (pointName && !isInvalidPointName(pointName)) {
         const pointCoords = resolveSettlementCoords(pointName);
         if (pointCoords) {
@@ -667,10 +710,10 @@ function parseIceRows(
             lowerCoords = pointCoords;
             upperSettlement = pointName;
             lowerSettlement = pointName;
-          } else if (!upperCoords) {
+          } else if (!upperCoords && !lowerFromNumeric) {
             upperCoords = pointCoords;
             upperSettlement = pointName;
-          } else if (!lowerCoords) {
+          } else if (!lowerCoords && !upperFromNumeric) {
             lowerCoords = pointCoords;
             lowerSettlement = pointName;
           }

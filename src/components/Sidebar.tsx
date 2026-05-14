@@ -13,7 +13,7 @@ import { useWaterLevelStore } from '../store/waterLevelStore';
 import { motion, AnimatePresence } from 'motion/react';
 import { generateWaterLevelHistory } from '../utils/mockDataService';
 import { downloadIceObservationTemplate } from '../utils/excelTemplates';
-import { DATA_SOURCE_MODE, YANDEX_PUBLIC_KEY } from '../config/runtimeConfig';
+import { DATA_SOURCE_MODE, publicAssetUrl, YANDEX_PUBLIC_KEY } from '../config/runtimeConfig';
 
 export default function Sidebar() {
   const isRemoteSyncEnabled = DATA_SOURCE_MODE !== 'none';
@@ -319,7 +319,7 @@ export default function Sidebar() {
         {/* Database Link Section */}
         <div className="mb-4" data-tour="database-link">
           <a
-            href="/database.html"
+            href={publicAssetUrl('database.html')}
             target="_blank"
             className="w-full bg-slate-50 hover:bg-blue-50 text-blue-700 border border-blue-100 font-bold py-2.5 px-4 rounded-xl shadow-sm flex items-center justify-center gap-2 transition-all group"
           >
@@ -354,6 +354,19 @@ export default function Sidebar() {
             )}
           </div>
         </div>
+
+        {isYandexMode && syncError && (
+          <div
+            className="mb-4 text-[10px] px-3 py-2 rounded-lg border bg-amber-50 border-amber-200 text-amber-950 max-h-40 overflow-y-auto shrink-0"
+            role="alert"
+          >
+            <div className="font-bold flex items-center gap-1.5 mb-1">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              Лёд (Яндекс.Диск) — предупреждения или ошибки
+            </div>
+            <p className="leading-snug break-words whitespace-pre-wrap">{syncError}</p>
+          </div>
+        )}
 
         {/* Year Switcher within Sidebar */}
         <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 mb-4" data-tour="year-switcher">

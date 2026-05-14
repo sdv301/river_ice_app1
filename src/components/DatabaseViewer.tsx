@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useAppStore } from '../store/appStore';
 import { SETTLEMENTS } from '../utils/riverData';
+import { publicAssetUrl } from '../config/runtimeConfig';
 import Tooltip from './Tooltip';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
@@ -44,7 +45,7 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
   };
 
   React.useEffect(() => {
-    fetch('/docs_list.json').then(r => r.json()).then(setDocsList).catch(() => {});
+    fetch(publicAssetUrl('docs_list.json')).then(r => r.json()).then(setDocsList).catch(() => {});
   }, []);
 
   if (!isOpen && !isPage) return null;

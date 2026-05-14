@@ -1,4 +1,5 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
@@ -18,6 +19,7 @@ import {
   MAP_VECTOR_STYLE_URL,
   NOMINATIM_ENABLED,
   NOMINATIM_URL,
+  publicAssetUrl,
 } from '../config/runtimeConfig';
 import { patchBasinStyleUrls, resolveBasinStyleAssetsBase } from '../utils/basinStyleAssets';
 import { mapTransformRequest } from '../utils/mapProxy';
@@ -1076,7 +1078,7 @@ export default function MapEditor() {
         onMouseLeave={() => setHoverInfo(null)}
         canvasContextAttributes={{ preserveDrawingBuffer: true }}
       >
-        <Source id="yakutia-bounds" type="geojson" data="/yakutia_boundaries.json">
+        <Source id="yakutia-bounds" type="geojson" data={publicAssetUrl('yakutia_boundaries.json')}>
           <Layer
             id="yakutia-district-fill"
             type="fill"
@@ -1450,26 +1452,29 @@ export default function MapEditor() {
         </div>
       </div>
 
-      {riskNotifications.length > 0 && (
-        <div className="fixed top-16 left-4 z-[10050] flex flex-col gap-2 max-w-[min(320px,calc(100vw-2rem))] pointer-events-none print-hide">
-          {riskNotifications.map((n) => (
-            <div
-              key={n.id}
-              className={`pointer-events-auto text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[min(320px,calc(100vw-2rem))] ${
-                n.level === 'danger'
-                  ? 'bg-red-600/95 text-white border-red-200/70'
-                  : n.level === 'warning'
-                    ? 'bg-yellow-300/95 text-yellow-950 border-yellow-100'
-                    : n.level === 'watch'
-                      ? 'bg-amber-100/95 text-amber-950 border-amber-200'
-                      : 'bg-slate-900/90 text-white border-white/20'
-              }`}
-            >
-              {n.message}
-            </div>
-          ))}
-        </div>
-      )}
+      {riskNotifications.length > 0 &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed top-16 left-4 z-[2147483000] flex flex-col gap-2 max-w-[min(320px,calc(100vw-2rem))] pointer-events-none print-hide">
+            {riskNotifications.map((n) => (
+              <div
+                key={n.id}
+                className={`pointer-events-auto text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[min(320px,calc(100vw-2rem))] ${
+                  n.level === 'danger'
+                    ? 'bg-red-600/95 text-white border-red-200/70'
+                    : n.level === 'warning'
+                      ? 'bg-yellow-300/95 text-yellow-950 border-yellow-100'
+                      : n.level === 'watch'
+                        ? 'bg-amber-100/95 text-amber-950 border-amber-200'
+                        : 'bg-slate-900/90 text-white border-white/20'
+                }`}
+              >
+                {n.message}
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
 
       <style>{`
         .maplibregl-ctrl-bottom-right {

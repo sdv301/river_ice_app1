@@ -5,6 +5,17 @@ const boolFromEnv = (value: string | undefined, fallback: boolean): boolean => {
 
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
+/**
+ * URL к файлам из `public/` с учётом `base` в vite.config (подкаталог на сервере).
+ * Без этого `/water_levels_db.json` уходит в корень хоста, а не в `/my-app/...`.
+ */
+export function publicAssetUrl(relativePath: string): string {
+  const path = relativePath.replace(/^\/+/, '');
+  const base = String(import.meta.env.BASE_URL ?? '/');
+  const prefix = base.endsWith('/') ? base : `${base}/`;
+  return `${prefix}${path}`;
+}
+
 /** Treat empty Vite env as unset so `??` fallbacks apply (Docker often passes ""). */
 const viteString = (value: unknown): string | undefined => {
   if (value === undefined || value === null) return undefined;
@@ -30,7 +41,8 @@ export const MAP_SATELLITE_TILES_URL =
 export const MAP_VECTOR_STYLE_URL =
   viteString(import.meta.env.VITE_MAP_VECTOR_STYLE_URL) ??
   'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
-export const MAP_BASIN_STYLE_URL = import.meta.env.VITE_MAP_BASIN_STYLE_URL ?? '/frexosm_basin_style.json';
+export const MAP_BASIN_STYLE_URL =
+  viteString(import.meta.env.VITE_MAP_BASIN_STYLE_URL) ?? publicAssetUrl('frexosm_basin_style.json');
 
 /** If set, basin style relative paths (/tiles, /fonts, …) are prefixed (e.g. https://frexosm.ru). */
 export const MAP_ASSETS_BASE = trimTrailingSlash(import.meta.env.VITE_MAP_ASSETS_BASE ?? '');
