@@ -458,7 +458,24 @@ function extractDateFromFileName(fileName: string): string | null {
   const match = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
   if (!match) return null;
   const [, day, month, year] = match;
-  const dateStr = `${year}-${month}-${day}T08:00:00Z`;
+  
+  let hour = '08';
+  let minute = '00';
+  
+  // Try to match hour if present, like "14-00", "14:00"
+  const timeMatch = fileName.match(/(?:в|на)?\s*(\d{1,2})[-:](\d{2})/i);
+  if (timeMatch) {
+    hour = timeMatch[1].padStart(2, '0');
+    minute = timeMatch[2];
+  } else {
+    // try to match just hour like "14ч", "в 14 час"
+    const hourOnlyMatch = fileName.match(/(?:в|на)?\s*(\d{1,2})\s*(?:ч|час)/i);
+    if (hourOnlyMatch) {
+      hour = hourOnlyMatch[1].padStart(2, '0');
+    }
+  }
+
+  const dateStr = `${year}-${month}-${day}T${hour}:${minute}:00Z`;
   const d = new Date(dateStr);
   return isNaN(d.getTime()) ? null : d.toISOString();
 }
@@ -728,7 +745,7 @@ function parseOperationalWaterLevels(
     const headers = (rows[i] ?? []).map(normalizeHeaderCell);
     const hasRiver = headers.some((h) => h === 'река');
     const hasPoint = headers.some((h) => h === 'пункт');
-    const hasLevel = headers.some((h) => h.includes('в 8') || h.includes('уровни'));
+    const hasLevel = headers.some((h) => h.includes('в 8') || h.match(/в \d{1,2}/) || h.includes('уровни'));
     if (hasRiver && hasPoint && hasLevel) {
       headerRowIndex = i;
       break;
@@ -739,7 +756,7 @@ function parseOperationalWaterLevels(
   const header = (rows[headerRowIndex] ?? []).map(normalizeHeaderCell);
   const riverIdx = header.findIndex((h) => h === 'река');
   const pointIdx = header.findIndex((h) => h === 'пункт');
-  const levelIdx = header.findIndex((h) => h.includes('в 8') || h.includes('уровни'));
+  const levelIdx = header.findIndex((h) => h.includes('в 8') || h.match(/в \d{1,2}/) || h.includes('уровни'));
   if (riverIdx < 0 || pointIdx < 0 || levelIdx < 0) return [];
 
   const byKey = new Map<string, WaterLevelStation>();
@@ -810,7 +827,8 @@ export async function downloadAndParseWaterLevels(file: YandexFile): Promise<{
   const isoDate =
     extractDateFromFileName(file.name) ||
     (file.modified ? new Date(file.modified).toISOString() : new Date().toISOString());
-  const dateKey = isoDate.substring(0, 10);
+  // Keep the time so we can store hourly data instead of just daily substring(0, 10)
+  const dateKey = isoDate;
   const opStations = parseOperationalWaterLevels(rows, dateKey);
   return { stations: opStations, year: inferredYear };
 }

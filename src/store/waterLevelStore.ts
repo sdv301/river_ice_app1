@@ -362,15 +362,25 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
       // If we don't have level for this exact day, try to find nearest previous
       let level = stn.levels[ds];
       if (level === undefined) {
-         // Fallback - find last known
-         let prevDaysAllowed = 5;
-         for(let j=1; j<=prevDaysAllowed; j++) {
-            const fallbackD = new Date(d);
-            fallbackD.setDate(fallbackD.getDate() - j);
-            const fallbackDs = fallbackD.toISOString().substr(0, 10);
-            if(stn.levels[fallbackDs] !== undefined) {
-               level = stn.levels[fallbackDs];
-               break;
+         const dayKeys = Object.keys(stn.levels).filter(k => k.startsWith(ds)).sort().reverse();
+         if (dayKeys.length > 0) {
+            level = stn.levels[dayKeys[0]];
+         } else {
+            // Fallback - find last known
+            let prevDaysAllowed = 5;
+            for(let j=1; j<=prevDaysAllowed; j++) {
+               const fallbackD = new Date(d);
+               fallbackD.setDate(fallbackD.getDate() - j);
+               const fallbackDs = fallbackD.toISOString().substr(0, 10);
+               if(stn.levels[fallbackDs] !== undefined) {
+                  level = stn.levels[fallbackDs];
+                  break;
+               }
+               const fallbackKeys = Object.keys(stn.levels).filter(k => k.startsWith(fallbackDs)).sort().reverse();
+               if(fallbackKeys.length > 0) {
+                  level = stn.levels[fallbackKeys[0]];
+                  break;
+               }
             }
          }
       }

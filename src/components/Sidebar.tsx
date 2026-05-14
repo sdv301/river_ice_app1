@@ -595,10 +595,11 @@ export default function Sidebar() {
                     </div>
                     {stnMeta?.criticalLevel && (() => {
                       const remaining = stnMeta.criticalLevel - currentLevel;
-                      // ≤ 0 / ≤ 250 → red; ≤ 500 → yellow; > 500 → green
-                      const tone = remaining < 0 || remaining <= 250
+                      const ratio = currentLevel / stnMeta.criticalLevel;
+                      // ratio >= 0.7 → red; ratio >= 0.5 → yellow; else → green
+                      const tone = ratio >= 0.7
                         ? { label: 'text-red-500', value: 'text-red-700' }
-                        : remaining <= 500
+                        : ratio >= 0.5
                           ? { label: 'text-amber-500', value: 'text-amber-700' }
                           : { label: 'text-emerald-500', value: 'text-emerald-700' };
                       return (

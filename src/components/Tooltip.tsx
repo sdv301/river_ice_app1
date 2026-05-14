@@ -9,6 +9,7 @@ interface TooltipProps {
   delay?: number;
   className?: string;
   maxWidth?: number;
+  key?: React.Key;
 }
 
 export default function Tooltip({ 

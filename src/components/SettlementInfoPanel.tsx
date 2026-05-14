@@ -36,14 +36,15 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   //   ≤ 500 → yellow (warning)
   //   > 500 → green (normal)
   const remainingToCritical = stnMeta?.criticalLevel ? stnMeta.criticalLevel - currentLevel : null;
-  const remainingTone = remainingToCritical === null
+  const ratio = stnMeta?.criticalLevel ? currentLevel / stnMeta.criticalLevel : null;
+  const remainingTone = ratio === null
     ? { panel: 'bg-slate-50 border-slate-100', icon: 'bg-slate-100 text-slate-500', title: 'text-slate-700', body: 'text-slate-700', value: 'text-slate-800', label: 'нет данных' }
-    : remainingToCritical < 0
-      ? { panel: 'bg-red-50 border-red-200', icon: 'bg-red-100 text-red-600', title: 'text-red-900', body: 'text-red-800', value: 'text-red-700', label: 'критический уровень превышен' }
-      : remainingToCritical <= 250
-        ? { panel: 'bg-red-50 border-red-200', icon: 'bg-red-100 text-red-600', title: 'text-red-900', body: 'text-red-800', value: 'text-red-700', label: 'критическая угроза' }
-        : remainingToCritical <= 500
-          ? { panel: 'bg-amber-50 border-amber-200', icon: 'bg-amber-100 text-amber-600', title: 'text-amber-900', body: 'text-amber-800', value: 'text-amber-700', label: 'повышенное внимание' }
+    : ratio >= 1
+      ? { panel: 'bg-red-50 border-red-200', icon: 'bg-red-100 text-red-600', title: 'text-red-900', body: 'text-red-800', value: 'text-red-700', label: 'критический уровень превышен (ОЯ)' }
+    : ratio >= 0.7
+        ? { panel: 'bg-red-50 border-red-200', icon: 'bg-red-100 text-red-600', title: 'text-red-900', body: 'text-red-800', value: 'text-red-700', label: 'критическая угроза (ОЯ)' }
+        : ratio >= 0.5
+          ? { panel: 'bg-amber-50 border-amber-200', icon: 'bg-amber-100 text-amber-600', title: 'text-amber-900', body: 'text-amber-800', value: 'text-amber-700', label: 'повышенное внимание (НЯ)' }
           : { panel: 'bg-green-50 border-green-200', icon: 'bg-green-100 text-green-600', title: 'text-green-900', body: 'text-green-800', value: 'text-green-700', label: 'норма' };
 
   return (

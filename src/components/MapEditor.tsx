@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { getSegments, generateGeoJSONSource } from '../utils/mapUtils';
+import { getSegments, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
 import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera } from 'lucide-react';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
@@ -15,9 +15,9 @@ type RiskLevel = 'normal' | 'watch' | 'warning' | 'danger';
 const WATER_RISE_ALERT_CM = 10;
 const RISK_LABELS: Record<RiskLevel, string> = {
   normal: 'Норма',
-  watch: 'Норма',
-  warning: 'Повышенное внимание',
-  danger: 'Критическая угроза',
+  watch: 'Внимание',
+  warning: 'НЯ (Неблагоприятное явление)',
+  danger: 'ОЯ (Опасное явление)',
 };
 
 type RiskNotification = {
@@ -109,17 +109,17 @@ const StationMarker = React.memo(({
     textClass = 'text-white';
     borderClass = 'border-red-800';
   } else if (riskLevel === 'warning') {
-    colorClass = 'bg-yellow-400';
-    textClass = 'text-yellow-900';
-    borderClass = 'border-yellow-600';
+    colorClass = 'bg-amber-400';
+    textClass = 'text-amber-950';
+    borderClass = 'border-amber-600';
   } else if (riskLevel === 'watch') {
-    colorClass = 'bg-green-500';
-    textClass = 'text-green-800';
-    borderClass = 'border-green-600';
+    colorClass = 'bg-blue-100';
+    textClass = 'text-blue-700';
+    borderClass = 'border-blue-300';
   }
 
   return (
-    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="center">
+    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="bottom" offset={[0, -8]}>
       <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 cursor-pointer hover:opacity-100 hover:scale-110 transition-transform`}
            onClick={(e) => {
              e.stopPropagation();
@@ -127,6 +127,8 @@ const StationMarker = React.memo(({
            }}
       >
         {level} см
+        {riskLevel === 'danger' && ' (ОЯ)'}
+        {riskLevel === 'warning' && ' (НЯ)'}
       </div>
     </Marker>
   );
@@ -173,6 +175,8 @@ const SettlementMarker = React.memo(({
                    : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
          }`}>
            {settlement.name}
+           {riskLevel === 'danger' && <span className="ml-1 text-[8px] px-1 bg-red-600 text-white rounded">ОЯ</span>}
+           {riskLevel === 'warning' && <span className="ml-1 text-[8px] px-1 bg-amber-500 text-white rounded">НЯ</span>}
          </span>
        </div>
     </Marker>
@@ -268,10 +272,7 @@ export default function MapEditor() {
         id: `ph-${obs.id}`,
         day: new Date(obs.date).toISOString().slice(0, 10),
         kind,
-        coords: [
-          (obs.upperEdgeCoords[0] + obs.lowerEdgeCoords[0]) / 2,
-          (obs.upperEdgeCoords[1] + obs.lowerEdgeCoords[1]) / 2,
-        ] as [number, number],
+        coords: interpolateAlongRiver(obs.upperEdgeCoords, obs.lowerEdgeCoords, 0.5),
       };
     });
   }, [observations]);
@@ -517,6 +518,7 @@ export default function MapEditor() {
   const riskFromScore = (score: number): RiskLevel => {
     if (score >= 3) return 'danger';
     if (score >= 2) return 'warning';
+    if (score >= 1) return 'watch';
     return 'normal';
   };
 
@@ -580,22 +582,29 @@ export default function MapEditor() {
       const critical = Number(stn.criticalLevel);
       if (Number.isFinite(critical) && critical > 0) {
         const diff = critical - currentLevel;
-        // Cm remaining to the critical level:
-        //   ≤ 250 → red (danger)
-        //   ≤ 500 → yellow (warning)
-        //   > 500 → green (normal)
-        if (diff <= 250) riskScore = Math.max(riskScore, 3);
-        else if (diff <= 500) riskScore = Math.max(riskScore, 2);
+        // Risk level based on percentage of critical level:
+        //   ≥ 70% (30% remaining) → red (danger/ОЯ)
+        //   ≥ 50% (50% remaining) → yellow (warning/НЯ)
+        //   < 50% → green (normal)
+        const ratio = currentLevel / critical;
+        if (ratio >= 0.7) riskScore = Math.max(riskScore, 3);
+        else if (ratio >= 0.5) riskScore = Math.max(riskScore, 2);
       }
 
       if (prevLevel !== null) {
         const rise = currentLevel - prevLevel;
-        if (rise >= WATER_RISE_ALERT_CM * 2.5) riskScore = Math.max(riskScore, 3);
-        else if (rise >= WATER_RISE_ALERT_CM) riskScore = Math.max(riskScore, 2);
+        // Water rise alerts are now capped at Yellow (2) unless ratio is already high
+        if (rise >= WATER_RISE_ALERT_CM * 2.5) riskScore = Math.max(riskScore, 2);
+        else if (rise >= WATER_RISE_ALERT_CM) riskScore = Math.max(riskScore, 1);
       }
 
-      riskScore = Math.max(riskScore, getJamRiskScore(stn.coords, activeJams));
-      riskMap.set(normalizeName(stn.name), riskScore);
+      const jamRisk = getJamRiskScore(stn.coords, activeJams);
+      // Ice jam proximity is now capped at Yellow (2) unless ratio is already high
+      riskScore = Math.max(riskScore, jamRisk >= 3 ? 2 : jamRisk);
+
+      const coordKey = `${stn.coords[0].toFixed(4)},${stn.coords[1].toFixed(4)}`;
+      const existing = riskMap.get(coordKey) ?? 0;
+      riskMap.set(coordKey, Math.max(existing, riskScore));
     }
 
     return riskMap;
@@ -604,10 +613,10 @@ export default function MapEditor() {
   const settlementRiskByName = useMemo(() => {
     const riskMap = new globalThis.Map<string, number>();
     for (const settlement of SETTLEMENTS) {
-      const key = normalizeName(settlement.name);
-      const stationRisk = stationRiskByName.get(key) ?? 0;
+      const coordKey = `${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`;
+      const stationRisk = stationRiskByName.get(coordKey) ?? 0;
       const jamRisk = getJamRiskScore(settlement.coords, activeJams);
-      riskMap.set(key, Math.max(stationRisk, jamRisk));
+      riskMap.set(coordKey, Math.max(stationRisk, jamRisk));
     }
     return riskMap;
   }, [activeJams, stationRiskByName]);
@@ -630,9 +639,9 @@ export default function MapEditor() {
     const previous = previousSettlementRiskRef.current;
     const escalated: { name: string; score: number }[] = [];
     for (const settlement of SETTLEMENTS) {
-      const key = normalizeName(settlement.name);
-      const currentScore = settlementRiskByName.get(key) ?? 0;
-      const previousScore = previous.get(key) ?? 0;
+      const coordKey = `${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`;
+      const currentScore = settlementRiskByName.get(coordKey) ?? 0;
+      const previousScore = previous.get(coordKey) ?? 0;
       if (currentScore > previousScore && currentScore >= 2) {
         escalated.push({ name: settlement.name, score: currentScore });
       }
@@ -750,7 +759,7 @@ export default function MapEditor() {
         return {
           stn,
           level,
-          riskLevel: riskFromScore(stationRiskByName.get(normalizeName(stn.name)) ?? 0),
+          riskLevel: riskFromScore(stationRiskByName.get(`${stn.coords[0].toFixed(4)},${stn.coords[1].toFixed(4)}`) ?? 0),
         };
       })
       .filter(Boolean) as { stn: any; level: number; riskLevel: RiskLevel }[];
@@ -766,7 +775,7 @@ export default function MapEditor() {
       })
       .map(settlement => ({
         settlement,
-        riskLevel: riskFromScore(settlementRiskByName.get(normalizeName(settlement.name)) ?? 0),
+        riskLevel: riskFromScore(settlementRiskByName.get(`${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`) ?? 0),
       }));
   }, [viewState.zoom, mapBounds, settlementRiskByName]);
 
