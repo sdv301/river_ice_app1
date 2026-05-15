@@ -1,13 +1,18 @@
 import express from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { DataProcessor } from './dataProcessor';
 
 const app = express();
-// This service is intended to run inside a private network and be exposed
-// externally only via reverse-proxy on :443.
 const host = process.env.INTERNAL_DATA_HOST ?? '0.0.0.0';
 const port = Number(process.env.INTERNAL_DATA_PORT ?? 8787);
 const dataDir = path.resolve(process.env.INTERNAL_DATA_DIR ?? path.join(process.cwd(), 'internal-data'));
+
+// Ensure data dir exists
+await fs.mkdir(dataDir, { recursive: true }).catch(() => {});
+
+const processor = new DataProcessor(dataDir);
+await processor.loadFromCache();
 
 const yandexPublicKey =
   process.env.YANDEX_PUBLIC_KEY ?? 'https://disk.yandex.ru/d/LENyBdYBr2B3rA';
@@ -26,8 +31,73 @@ const ensureInsideDataDir = (resolvedPath: string): boolean => {
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 };
 
+/**
+ * Background Task: Sync with Yandex Disk and re-process files
+ */
+async function syncAndProcess() {
+  console.log('[Sync] Starting Yandex Disk sync...');
+  try {
+    // 1. List files from Yandex
+    const listUrl = `${yandexApiBase}?public_key=${encodeURIComponent(yandexPublicKey)}&limit=1000`;
+    const listRes = await fetch(listUrl);
+    if (!listRes.ok) throw new Error(`Yandex list failed: ${listRes.status}`);
+    
+    const data = await listRes.json() as any;
+    const items = data._embedded?.items || [];
+    
+    let downloadedCount = 0;
+    for (const item of items) {
+      if (item.type !== 'file' || !allowedExt.has(path.extname(item.name).toLowerCase())) continue;
+      
+      const localPath = path.join(dataDir, item.name);
+      // Check if file exists and has same size
+      try {
+        const stats = await fs.stat(localPath);
+        if (stats.size === item.size) continue; 
+      } catch {
+        // File doesn't exist
+      }
+
+      console.log(`[Sync] Downloading new/updated file: ${item.name}`);
+      const fileRes = await fetch(item.file); // Yandex provides direct 'file' link in list
+      if (!fileRes.ok) continue;
+      
+      const buf = Buffer.from(await fileRes.arrayBuffer());
+      await fs.writeFile(localPath, buf);
+      downloadedCount++;
+    }
+
+    if (downloadedCount > 0 || processor.getData().observations.length === 0) {
+      console.log(`[Sync] Downloaded ${downloadedCount} files. Starting re-process...`);
+      await processor.processFiles(dataDir);
+      console.log('[Sync] Processing complete.');
+    } else {
+      console.log('[Sync] No new files found.');
+    }
+  } catch (err) {
+    console.error('[Sync] Error during sync:', err);
+  }
+}
+
+// Run sync every 15 minutes
+setInterval(syncAndProcess, 15 * 60 * 1000);
+// Initial sync
+syncAndProcess();
+
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, dataDir });
+  res.json({ ok: true, dataDir, lastUpdated: new Date().toISOString() });
+});
+
+/**
+ * NEW: Pre-parsed data endpoint for frontend
+ */
+app.get('/api/data/all', (_req, res) => {
+  res.json(processor.getData());
+});
+
+app.post('/api/data/refresh', async (_req, res) => {
+  await syncAndProcess();
+  res.json({ ok: true });
 });
 
 app.get('/api/disk/files', async (_req, res) => {
@@ -155,7 +225,6 @@ function isAllowedYandexDownloadUrl(raw: string): boolean {
   return false;
 }
 
-// Browser → same origin → this service → Yandex (ПК в LAN может быть без интернета).
 app.get('/api/yandex/list', async (req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 100, 1), 2000);
   const listUrl = `${yandexApiBase}?public_key=${encodeURIComponent(yandexPublicKey)}&limit=${limit}`;
@@ -215,7 +284,6 @@ app.get('/api/yandex/file', async (req, res) => {
   }
 });
 
-/** Same-origin raster tiles for MapLibre (browser avoids Esri CORS). z/y/x as in Esri tile URLs. */
 app.get('/api/tiles/arcgis/:z/:y/:x', async (req, res) => {
   const z = Number(req.params.z);
   const y = Number(req.params.y);

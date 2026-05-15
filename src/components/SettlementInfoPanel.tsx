@@ -1,11 +1,109 @@
-import React from 'react';
-import { X, Info, Droplets, TrendingUp, TrendingDown, Minus, MapPin, Activity } from 'lucide-react';
-import { format, subDays } from 'date-fns';
+import React, { useState } from 'react';
+import { X, Info, Droplets, TrendingUp, TrendingDown, Minus, MapPin, Activity, Video, ExternalLink, Radio } from 'lucide-react';
+import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import UITooltip from './Tooltip';
+
+/**
+ * Mapping of settlement names to АрктикТелеком camera info.
+ * Supports multiple cameras per settlement.
+ */
+export const CAMERA_MAP: Record<string, { section: 'lena' | 'aldan' | 'indi' | 'kolyma' | 'main'; items: { url: string; label: string }[] }> = {
+  // ... (rest of map remains same as previous edit)
+  // р. Лена
+  'Ленск': { 
+    section: 'lena', 
+    items: [
+      { label: 'Набережная', url: 'https://www.a-telecom.ru/ledohod/' },
+      { label: 'Город', url: 'https://www.a-telecom.ru/ledohod/' }
+    ] 
+  },
+  'Олекминск': { 
+    section: 'lena', 
+    items: [
+      { label: 'Юг', url: 'https://www.a-telecom.ru/ledohod/' },
+      { label: 'Север', url: 'https://www.a-telecom.ru/ledohod/' }
+    ] 
+  },
+  'Покровск': { 
+    section: 'lena', 
+    items: [{ label: 'г. Покровск', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Верхний Бестях': { 
+    section: 'lena', 
+    items: [{ label: 'с. Верхний Бестях', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Якутск': { 
+    section: 'lena', 
+    items: [{ label: 'г. Якутск', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Жатай': { 
+    section: 'lena', 
+    items: [{ label: 'пгт Жатай', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Намцы': { 
+    section: 'lena', 
+    items: [{ label: 'Графский берег', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Сангар': { 
+    section: 'lena', 
+    items: [
+      { label: 'Юг', url: 'https://www.a-telecom.ru/ledohod/' },
+      { label: 'Север', url: 'https://www.a-telecom.ru/ledohod/' }
+    ] 
+  },
+  'Жиганск': { 
+    section: 'lena', 
+    items: [{ label: 'г. Жиганск', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  // р. Алдан
+  'Хандыга': { 
+    section: 'aldan', 
+    items: [{ label: 'п. Хандыга', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Усть-Мая': { 
+    section: 'aldan', 
+    items: [{ label: 'с. Усть-Мая', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  // р. Индигирка
+  'Усть-Нера': { 
+    section: 'indi', 
+    items: [{ label: 'п. Усть-Нера', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Зырянка': { 
+    section: 'indi', 
+    items: [{ label: 'п. Зырянка', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  // р. Колыма
+  'Среднеколымск': { 
+    section: 'kolyma', 
+    items: [{ label: 'г. Среднеколымск', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+  'Белая Гора': { 
+    section: 'kolyma', 
+    items: [{ label: 'с. Белая Гора', url: 'https://www.a-telecom.ru/ledohod/' }] 
+  },
+};
+
+const SECTION_LABELS: Record<string, string> = {
+  lena: 'р. Лена',
+  aldan: 'р. Алдан',
+  indi: 'р. Индигирка',
+  kolyma: 'р. Колыма',
+  main: 'Онлайн-трансляция',
+};
+
+const SECTION_COLORS: Record<string, string> = {
+  lena:   'from-blue-600 to-blue-700',
+  aldan:  'from-teal-600 to-teal-700',
+  indi:   'from-violet-600 to-violet-700',
+  kolyma: 'from-cyan-600 to-cyan-700',
+  main:   'from-slate-600 to-slate-700',
+};
+
 
 interface Props {
   settlement: any;
@@ -17,6 +115,15 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   const { getSectionSpeeds } = useIceStore();
   const { getStationHistory, getStation } = useWaterLevelStore();
   const sectionSpeeds = getSectionSpeeds();
+  const [showFrame, setShowFrame] = useState(false);
+
+  const camera = CAMERA_MAP[settlement.name] ?? null;
+  const [activeCamIdx, setActiveCamIdx] = useState(0);
+  const activeCam = camera?.items[activeCamIdx] ?? (camera?.items[0]);
+
+  const ysiaUrl = `https://ysia.ru/ice-drift-live/${
+    camera ? `#${camera.section}` : ''
+  }`;
 
   const history = getStationHistory(settlement.name, currentDate, 10);
   const stnMeta = getStation(settlement.name);
@@ -31,10 +138,6 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   const diff = currentLevel - prevLevel;
 
   // Cm remaining to the critical level (риск):
-  //   ≤ 0   → red (exceeded)
-  //   ≤ 250 → red (danger)
-  //   ≤ 500 → yellow (warning)
-  //   > 500 → green (normal)
   const remainingToCritical = stnMeta?.criticalLevel ? stnMeta.criticalLevel - currentLevel : null;
   const ratio = stnMeta?.criticalLevel ? currentLevel / stnMeta.criticalLevel : null;
   const remainingTone = ratio === null
@@ -50,7 +153,7 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   return (
     <div className="w-full bg-white flex flex-col h-full overflow-hidden">
       {/* Dynamic Header */}
-      <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 backdrop-blur-md sticky top-0 z-10">
+      <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50 sticky top-0 z-10">
         <div className="flex items-center gap-4">
           <div className="w-12 h-12 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-200">
             <MapPin className="w-6 h-6 text-white" />
@@ -71,6 +174,119 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
         >
           <X className="w-7 h-7" />
         </button>
+      </div>
+
+      {/* Онлайн-камера блок */}
+      <div className={`px-6 pt-5 pb-2 border-b border-slate-100 bg-gradient-to-r ${
+        camera ? SECTION_COLORS[camera.section] : 'from-slate-700 to-slate-800'
+      } text-white`}>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            {camera ? (
+              <div className="flex items-center gap-2">
+                <span className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500 rounded-full text-xs font-black uppercase tracking-wide animate-pulse">
+                  <Radio className="w-3 h-3" />
+                  LIVE
+                </span>
+                {camera.items.length > 1 && (
+                  <div className="flex bg-white/10 rounded-lg p-0.5 border border-white/20">
+                    {camera.items.map((it, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => { setActiveCamIdx(idx); setShowFrame(true); }}
+                        className={`px-2 py-1 rounded-md text-[10px] font-black transition-all ${
+                          activeCamIdx === idx && showFrame ? 'bg-white text-slate-900 shadow-sm' : 'text-white/70 hover:text-white'
+                        }`}
+                      >
+                        {it.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <Video className="w-5 h-5 opacity-60" />
+            )}
+            <div>
+              <div className="font-black text-base leading-tight">
+                {camera ? `Онлайн-камера — ${activeCam?.label ?? settlement.name}` : 'Онлайн-трансляция ледохода'}
+              </div>
+              {camera && (
+                <div className="text-xs opacity-70 font-bold mt-0.5">
+                  {SECTION_LABELS[camera.section]} — Мониторинг АрктикТелеком
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            {camera && (
+              <button
+                onClick={() => setShowFrame(f => !f)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black transition-all border ${
+                  showFrame
+                    ? 'bg-white text-slate-800 border-white/80 shadow-inner'
+                    : 'bg-white/20 hover:bg-white/30 border-white/30 text-white'
+                }`}
+              >
+                <Video className="w-4 h-4" />
+                {showFrame ? 'Скрыть плеер' : 'Смотреть здесь'}
+              </button>
+            )}
+            <a
+              href={ysiaUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black bg-white/20 hover:bg-white/30 border border-white/30 text-white transition-all"
+            >
+              <ExternalLink className="w-4 h-4" />
+              ЯСИА
+            </a>
+            <a
+              href={activeCam?.url ?? 'https://www.a-telecom.ru/ledohod/'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black bg-red-500 hover:bg-red-400 border border-red-400 text-white transition-all shadow-lg"
+            >
+              <Radio className="w-4 h-4" />
+              Прямой эфир
+            </a>
+          </div>
+        </div>
+
+        {/* Inline iframe viewer */}
+        {showFrame && camera && activeCam && (
+          <div className="mt-4 mb-1 rounded-2xl overflow-hidden border border-white/20 shadow-2xl bg-black relative">
+            <div className="absolute top-2 right-2 z-10 flex gap-2">
+               <div className="bg-black/60 px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-widest border border-white/10">
+                 {activeCam.label}
+               </div>
+               <button
+                 onClick={() => setShowFrame(false)}
+                 className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded-lg transition"
+               >
+                 <X className="w-4 h-4" />
+               </button>
+            </div>
+            <iframe
+              src={activeCam.url}
+              title={`Онлайн-камера: ${settlement.name} - ${activeCam.label}`}
+              className="w-full"
+              style={{ height: 400, border: 'none' }}
+              allow="autoplay; encrypted-media"
+              sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            />
+            <div className="px-4 py-2 bg-black/80 text-white/60 text-xs font-bold flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Info className="w-3 h-3" />
+                Трансляция предоставлена АО «АрктикТелеком»
+              </div>
+              <a href={activeCam.url} target="_blank" rel="noopener noreferrer" className="underline text-white/80 hover:text-white">
+                Открыть на сайте источника &rarr;
+              </a>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto">
@@ -174,7 +390,7 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
                       strokeWidth={4}
                       fillOpacity={1} 
                       fill="url(#colorLevel)" 
-                      animationDuration={1500}
+                      isAnimationActive={false}
                     />
                   </AreaChart>
                 </ResponsiveContainer>

@@ -114,6 +114,38 @@ function scoreHeaderRow(row: unknown[]): number {
   return score;
 }
 
+/**
+ * Detect if the row immediately after `headerRowIndex` is a secondary header row
+ * (e.g. "Широта | Долгота" sub-headers under a merged "Нижняя кромка" parent).
+ * Returns the merged compound header names if detected, otherwise null.
+ */
+function tryMergeSecondaryHeaderRow(
+  rows: unknown[][],
+  headerRowIndex: number,
+  primaryHeader: string[],
+): string[] | null {
+  const nextIdx = headerRowIndex + 1;
+  if (nextIdx >= rows.length) return null;
+  const next = rows[nextIdx].map((v) => String(v ?? '').trim());
+  // Only merge if the secondary row has lat/lng keywords
+  const nextLower = next.map((v) => v.toLowerCase());
+  const hasLatLng = nextLower.some(
+    (h) => h.includes('широт') || h.includes('долгот') || h.includes('lat') || h.includes('lng'),
+  );
+  if (!hasLatLng) return null;
+  // Check that secondary row doesn't look like data (no numbers)
+  const hasNumbers = next.some((v) => v !== '' && !isNaN(Number(v.replace(',', '.'))));
+  if (hasNumbers) return null;
+
+  // Merge: compound name = "Parent.Sub" for non-empty sub-cells; keep parent for empty sub
+  const merged = primaryHeader.map((parent, idx) => {
+    const sub = next[idx] ?? '';
+    if (sub) return `${parent}.${sub}`;
+    return parent;
+  });
+  return merged;
+}
+
 function parseSheetRows(ws: XLSX.WorkSheet): any[] {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][];
   if (rows.length === 0) return [];
@@ -132,14 +164,21 @@ function parseSheetRows(ws: XLSX.WorkSheet): any[] {
 
   const rawHeader = rows[headerRowIndex].map((v) => String(v ?? '').trim());
   const headerCounts = new Map<string, number>();
-  const header = rawHeader.map((h, idx) => {
+  const primaryHeader = rawHeader.map((h, idx) => {
     const base = h || `col_${idx}`;
     const count = (headerCounts.get(base) ?? 0) + 1;
     headerCounts.set(base, count);
     return count === 1 ? base : `${base}__${count}`;
   });
+
+  // Detect two-row merged headers (e.g. "Нижняя кромка" / "Широта | Долгота")
+  const mergedHeader = tryMergeSecondaryHeaderRow(rows, headerRowIndex, primaryHeader);
+  const header = mergedHeader ?? primaryHeader;
+  // If we used the secondary row as part of the header, skip it in data rows
+  const dataStartRow = headerRowIndex + (mergedHeader ? 2 : 1);
+
   const out: any[] = [];
-  for (let r = headerRowIndex + 1; r < rows.length; r++) {
+  for (let r = dataStartRow; r < rows.length; r++) {
     const values = rows[r];
     const obj: Record<string, unknown> = {};
     let hasData = false;
@@ -148,6 +187,8 @@ function parseSheetRows(ws: XLSX.WorkSheet): any[] {
       const value = values?.[c];
       if (value !== '' && value !== null && value !== undefined) hasData = true;
       obj[key] = value;
+      // Also store under compound sub-key for convenience lookup
+      // e.g. "Нижняя кромка.Широта" → also store under "Нижняя кромка.Широта"
     }
     if (hasData) out.push(obj);
   }
@@ -279,16 +320,19 @@ export interface ParsedObservation {
  */
 function normalizeWgs84Coords(lng: number | null, lat: number | null): [number, number] | null {
   if (lng === null || lat === null) return null;
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return null;
 
-  // Standard order in app: [longitude, latitude]
-  if (lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90) {
-    return [lng, lat];
-  }
+  // Lena region plausibility check: prefer [lng, lat] when values fit the region
+  const lenaLng = (v: number) => v >= 88 && v <= 155;
+  const lenaLat = (v: number) => v >= 48 && v <= 78;
 
-  // Common user mistake: swapped lat/lng
-  if (lat >= -180 && lat <= 180 && lng >= -90 && lng <= 90) {
-    return [lat, lng];
-  }
+  if (lenaLng(lng) && lenaLat(lat)) return [lng, lat];
+  // Swapped: lat provided first, lng second
+  if (lenaLng(lat) && lenaLat(lng)) return [lat, lng];
+
+  // Generic WGS-84 fallback
+  if (lng >= -180 && lng <= 180 && lat >= -90 && lat <= 90) return [lng, lat];
+  if (lat >= -180 && lat <= 180 && lng >= -90 && lng <= 90) return [lat, lng];
 
   return null;
 }
@@ -363,10 +407,35 @@ export const SETTLEMENT_COORDS: Record<string, [number, number]> = {
   'Калакан': [116.39, 54.67],
   'Патома': [112.82, 59.28],
   'Романовка': [113.85, 58.30],
+  'Березовка': [112.90, 59.35],  // Витим tributary near Бодайбо
 
   // Олёкма river basin (Бассейн Олёкмы)
   'Ср.Олёкма': [121.80, 57.60],
   'Средняя Олёкма': [121.80, 57.60],
+  'Усть-Миль': [131.42, 60.08],  // Miyl river mouth, right tributary of Lena
+
+  // Aldan river basin (Бассейн Алдана)
+  'Белькачи': [135.93, 58.91],   // Aldan valley
+  'Эльдикан': [135.63, 60.78],   // Aldan
+  'Хандыга': [136.64, 62.65],    // Aldan
+  'Джебарики Хая': [136.16, 61.93], // Aldan coal port
+  'Охотский Перевоз': [133.92, 62.07], // Aldan
+  'Кюпцы': [131.40, 61.58],      // Aldan lower
+  'Мегино-Алдан': [130.55, 61.67], // Aldan mouth area
+  'Кескил': [134.17, 62.50],     // Aldan
+  'Чагда': [133.41, 60.97],      // Lena-Aldan junction area
+  'Петропавловск': [132.90, 61.13], // Aldan basin
+  'Эжанцы': [130.24, 62.13],     // Lena right bank below Yakutsk
+  'Новый': [130.38, 62.68],      // Lena lower reaches
+  'Крест-Хальджай': [131.15, 61.45], // Aldan lower
+
+  // Maya river basin (Бассейн Маи)
+  'Малыкай': [134.50, 60.80],    // Maya valley
+
+  // Vilyuy river basin (Бассейн Вилюя)
+  'Верхневилюйск': [120.32, 63.45],
+  'Вилюйск': [121.62, 63.75],
+  'Хатырык-Хомо': [122.12, 64.08], // Vilyuy
 
   // Lena main-stem observation points
   'Иннялы': [119.00, 60.00],
@@ -632,18 +701,17 @@ function parseIceRows(
       lowerCoords = inferLngLatPair(lowerLng, lowerLat);
       if (lowerLng !== null && lowerLat !== null && lowerCoords) lowerFromNumeric = true;
 
-      // Format 4: шаблон — сначала узкие имена колонок, чтобы не перепутать две пары «Широта/Долгота»
+      // Format 4 / compound-header: try named columns first (narrow match to avoid mix-up of two lat/lng pairs)
       if (!lowerCoords) {
         const tplLat = extractNum(row, [
-          'Широта (нижняя кромка)',
-          'Нижняя широта',
-          'Широта нижней кромки',
+          // Compound names from two-row merged headers (e.g. "Нижняя кромка.Широта")
+          'Нижняя кромка.Широта', 'Нижняя кромка.Lat', 'Нижняя кромка.lat',
+          'Широта (нижняя кромка)', 'Нижняя широта', 'Широта нижней кромки',
           'Широта',
         ]);
         const tplLng = extractNum(row, [
-          'Долгота (нижняя кромка)',
-          'Нижняя долгота',
-          'Долгота нижней кромки',
+          'Нижняя кромка.Долгота', 'Нижняя кромка.Lng', 'Нижняя кромка.lng',
+          'Долгота (нижняя кромка)', 'Нижняя долгота', 'Долгота нижней кромки',
           'Долгота',
         ]);
         lowerCoords = inferLngLatPair(tplLng, tplLat);
@@ -651,21 +719,52 @@ function parseIceRows(
       }
       if (!upperCoords) {
         const tplLat = extractNum(row, [
-          'Широта (верхняя кромка)',
-          'Верхняя широта',
-          'Широта верхней кромки',
-          'Широта__2',
-          'Широта_2',
+          'Верхняя кромка.Широта', 'Верхняя кромка.Lat', 'Верхняя кромка.lat',
+          'Широта (верхняя кромка)', 'Верхняя широта', 'Широта верхней кромки',
+          'Широта__2', 'Широта_2',
         ]);
         const tplLng = extractNum(row, [
-          'Долгота (верхняя кромка)',
-          'Верхняя долгота',
-          'Долгота верхней кромки',
-          'Долгота__2',
-          'Долгота_2',
+          'Верхняя кромка.Долгота', 'Верхняя кромка.Lng', 'Верхняя кромка.lng',
+          'Долгота (верхняя кромка)', 'Верхняя долгота', 'Долгота верхней кромки',
+          'Долгота__2', 'Долгота_2',
         ]);
         upperCoords = inferLngLatPair(tplLng, tplLat);
         if (tplLng !== null && tplLat !== null && upperCoords) upperFromNumeric = true;
+      }
+
+      // Format 6: «Нижняя кромка» / «Верхняя кромка» columns contain raw numbers (lat first, lng second).
+      // This happens when the header row IS the кромка row and no sub-headers were found.
+      // Example: column "Нижняя кромка" = 60.890727, next column (unnamed) = 125.800869
+      if (!lowerCoords) {
+        const rawLower = row['Нижняя кромка'] ?? row['нижняя кромка'];
+        const numLower = rawLower !== undefined && rawLower !== '' ? Number(String(rawLower).replace(',', '.')) : NaN;
+        if (!isNaN(numLower)) {
+          // The value in "Нижняя кромка" is numeric — treat as lat; scan row for a plausible lng partner
+          const rowValues = Object.values(row as Record<string, unknown>)
+            .map((v) => Number(String(v ?? '').replace(',', '.')))
+            .filter((n) => !isNaN(n) && n !== numLower);
+          for (const partner of rowValues) {
+            const attempt = inferLngLatPair(numLower, partner);
+            if (attempt) { lowerCoords = attempt; lowerFromNumeric = true; break; }
+            const attempt2 = inferLngLatPair(partner, numLower);
+            if (attempt2) { lowerCoords = attempt2; lowerFromNumeric = true; break; }
+          }
+        }
+      }
+      if (!upperCoords) {
+        const rawUpper = row['Верхняя кромка'] ?? row['верхняя кромка'];
+        const numUpper = rawUpper !== undefined && rawUpper !== '' ? Number(String(rawUpper).replace(',', '.')) : NaN;
+        if (!isNaN(numUpper)) {
+          const rowValues = Object.values(row as Record<string, unknown>)
+            .map((v) => Number(String(v ?? '').replace(',', '.')))
+            .filter((n) => !isNaN(n) && n !== numUpper && (lowerCoords ? Math.abs(n - lowerCoords[0]) > 0.0001 && Math.abs(n - lowerCoords[1]) > 0.0001 : true));
+          for (const partner of rowValues) {
+            const attempt = inferLngLatPair(numUpper, partner);
+            if (attempt) { upperCoords = attempt; upperFromNumeric = true; break; }
+            const attempt2 = inferLngLatPair(partner, numUpper);
+            if (attempt2) { upperCoords = attempt2; upperFromNumeric = true; break; }
+          }
+        }
       }
 
       // ---- Try to resolve settlement names ----

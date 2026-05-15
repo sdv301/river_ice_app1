@@ -29,6 +29,7 @@ interface WaterLevelState {
   lastDiskModified: string | null;
   syncError: string | null;
   setStations: (stations: WaterLevelStation[]) => void;
+  setHistory: (history: Record<string, {date: string, level: number}[]>) => void;
   mergeStations: (incoming: WaterLevelStation[]) => void;
   loadData: () => Promise<void>;
   fetchFromYandexDisk: (options?: { year?: number | null }) => Promise<WaterLevelSyncResult>;
@@ -166,6 +167,23 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
     writeOverridesToStorage(stations);
     writeSnapshotToStorage(stations);
     set({ stations, isLoaded: true });
+  },
+  setHistory: (historyMap) => {
+    const current = get().stations;
+    // Update existing or create new
+    const updated = [...current];
+    Object.entries(historyMap).forEach(([name, points]) => {
+      let stn = updated.find(s => s.name === name);
+      if (!stn) {
+        stn = { id: name, index: 999, river: 'Лена', name, criticalLevel: null, coords: null, levels: {} };
+        updated.push(stn);
+      }
+      points.forEach(p => {
+        stn!.levels[p.date] = p.level;
+      });
+    });
+    writeSnapshotToStorage(updated);
+    set({ stations: updated, isLoaded: true });
   },
   mergeStations: (incoming) => {
     const current = get().stations;
@@ -363,46 +381,38 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
   getStationHistory: (name: string, dateStr: string, days: number) => {
     const stn = get().getStation(name);
     if (!stn || !stn.levels) return [];
-    
-    // Convert to Date to subtract days
+
     const targetDate = new Date(dateStr);
+    const allKeys = Object.keys(stn.levels);
     const history = [];
-    
+
+    const findLevel = (d: Date): number | undefined => {
+      const dayKey = d.toISOString().substr(0, 10);
+      // Direct YYYY-MM-DD key
+      if (stn.levels[dayKey] !== undefined) return stn.levels[dayKey];
+      // Prefix scan for full ISO timestamp keys (operational bulletin format)
+      const matching = allKeys.filter((k) => k.startsWith(dayKey)).sort();
+      if (matching.length > 0) return stn.levels[matching[matching.length - 1]];
+      return undefined;
+    };
+
     for (let i = days - 1; i >= 0; i--) {
       const d = new Date(targetDate);
       d.setDate(d.getDate() - i);
       const ds = d.toISOString().substr(0, 10);
-      
-      // If we don't have level for this exact day, try to find nearest previous
-      let level = stn.levels[ds];
+
+      let level = findLevel(d);
       if (level === undefined) {
-         const dayKeys = Object.keys(stn.levels).filter(k => k.startsWith(ds)).sort().reverse();
-         if (dayKeys.length > 0) {
-            level = stn.levels[dayKeys[0]];
-         } else {
-            // Fallback - find last known
-            let prevDaysAllowed = 5;
-            for(let j=1; j<=prevDaysAllowed; j++) {
-               const fallbackD = new Date(d);
-               fallbackD.setDate(fallbackD.getDate() - j);
-               const fallbackDs = fallbackD.toISOString().substr(0, 10);
-               if(stn.levels[fallbackDs] !== undefined) {
-                  level = stn.levels[fallbackDs];
-                  break;
-               }
-               const fallbackKeys = Object.keys(stn.levels).filter(k => k.startsWith(fallbackDs)).sort().reverse();
-               if(fallbackKeys.length > 0) {
-                  level = stn.levels[fallbackKeys[0]];
-                  break;
-               }
-            }
-         }
+        // Fallback — look up to 5 preceding days
+        for (let j = 1; j <= 5; j++) {
+          const fallback = new Date(d);
+          fallback.setDate(fallback.getDate() - j);
+          level = findLevel(fallback);
+          if (level !== undefined) break;
+        }
       }
-      
-      history.push({
-        date: ds,
-        level: level !== undefined ? level : 0
-      });
+
+      history.push({ date: ds, level: level !== undefined ? level : 0 });
     }
     return history;
   }

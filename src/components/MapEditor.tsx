@@ -3,7 +3,8 @@ import { createPortal } from 'react-dom';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
-import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera } from 'lucide-react';
+import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera, Video, Radio } from 'lucide-react';
+import { CAMERA_MAP } from './SettlementInfoPanel';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
 import { SETTLEMENTS } from '../utils/riverData';
@@ -146,16 +147,24 @@ const StationMarker = React.memo(({
 
   return (
     <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="bottom" offset={[0, -8]}>
-      <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 cursor-pointer hover:opacity-100 hover:scale-110 transition-transform`}
+      <div className="flex flex-col items-center group cursor-pointer"
            onClick={(e) => {
              e.stopPropagation();
              onSelect(stn);
            }}
       >
-        {level} см
-        {riskLevel === 'danger' && ' (ОЯ)'}
-        {riskLevel === 'warning' && ' (НЯ)'}
-        {riskLevel === 'watch' && ' (Вним.)'}
+        {CAMERA_MAP[stn.name] && (
+          <div className="flex items-center gap-1 mb-0.5 bg-red-600 px-1 py-0.5 rounded shadow-sm scale-90 group-hover:scale-100 transition-transform">
+             <div className="w-1 h-1 rounded-full bg-white animate-pulse"></div>
+             <Video className="w-2.5 h-2.5 text-white" />
+          </div>
+        )}
+        <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 group-hover:opacity-100 transition-all`}>
+          {level} см
+          {riskLevel === 'danger' && ' (ОЯ)'}
+          {riskLevel === 'warning' && ' (НЯ)'}
+          {riskLevel === 'watch' && ' (Вним.)'}
+        </div>
       </div>
     </Marker>
   );
@@ -179,17 +188,26 @@ const SettlementMarker = React.memo(({
            onSelect(settlement);
          }}
        >
-         <CircleDot className={`w-3 h-3 ${
-           riskLevel === 'danger'
-             ? 'text-red-100 fill-red-500 scale-125'
-             : riskLevel === 'warning'
-               ? 'text-yellow-100 fill-yellow-500 scale-125'
-               : riskLevel === 'watch'
-                 ? 'text-amber-900 fill-amber-400 scale-125 drop-shadow-[0_0_6px_rgba(251,191,36,0.95)]'
-                 : settlement.isMajor
-                   ? 'text-white fill-slate-800 scale-125'
-                   : 'text-slate-200 fill-slate-600'
-         } drop-shadow`} />
+         <div className="relative">
+           <CircleDot className={`w-3 h-3 ${
+             riskLevel === 'danger'
+               ? 'text-red-100 fill-red-500 scale-125'
+               : riskLevel === 'warning'
+                 ? 'text-yellow-100 fill-yellow-500 scale-125'
+                 : riskLevel === 'watch'
+                   ? 'text-amber-900 fill-amber-400 scale-125 drop-shadow-[0_0_6px_rgba(251,191,36,0.95)]'
+                   : settlement.isMajor
+                     ? 'text-white fill-slate-800 scale-125'
+                     : 'text-slate-200 fill-slate-600'
+           } drop-shadow`} />
+           
+           {CAMERA_MAP[settlement.name] && (
+             <div className="absolute -top-2 -right-2 bg-red-600 rounded-full p-0.5 border border-white shadow-sm scale-75 animate-pulse">
+               <Video className="w-2 h-2 text-white" />
+             </div>
+           )}
+         </div>
+
          <span className={`font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-nowrap px-1 rounded-sm backdrop-blur-[2px] ${
            riskLevel === 'danger'
              ? 'text-red-50 bg-red-700/75 text-xs ring-1 ring-red-300/80 shadow-[0_0_12px_rgba(239,68,68,0.8)] animate-pulse'
@@ -198,8 +216,8 @@ const SettlementMarker = React.memo(({
                : riskLevel === 'watch'
                  ? 'text-amber-950 bg-amber-300/95 text-xs ring-2 ring-amber-500 shadow-[0_0_14px_rgba(245,158,11,0.85)] animate-pulse'
                  : settlement.isMajor
-                   ? 'text-white bg-slate-900/60 text-xs tracking-wide'
-                   : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
+                   ? 'text-white bg-slate-900/80 text-xs tracking-wide'
+                   : 'text-slate-100 bg-slate-900/60 text-[10px] opacity-90'
          }`}>
            {settlement.name}
            {riskLevel === 'danger' && <span className="ml-1 text-[8px] px-1 bg-red-600 text-white rounded">ОЯ</span>}
@@ -326,10 +344,6 @@ export default function MapEditor() {
   }), [observationPoints]);
   const currentDay = useMemo(() => new Date(currentDate).toISOString().slice(0, 10), [currentDate]);
   const hasAnyObservations = observations.length > 0;
-  const hasObservationOnSelectedDay = useMemo(
-    () => observations.some((obs) => new Date(obs.date).toISOString().slice(0, 10) === currentDay),
-    [observations, currentDay],
-  );
   const phenomenonMarkers = useMemo(() => {
     return observations.map((obs) => {
       const kind = detectPhenomenonKind(obs.notes, obs.locationName);
@@ -623,20 +637,21 @@ export default function MapEditor() {
   }, [mapType]);
   
   const geojsonSource = useMemo(() => {
-    // Keep map readable when DB is still empty: show neutral full-river line.
-    // But when observations exist and selected day has no data, hide the river.
+    // When no observations are loaded at all: show a neutral full-river line
+    // so the map is still readable as a reference.
     if (!hasAnyObservations) {
       return generateGeoJSONSource(getSegments(null, null));
     }
-    if (!hasObservationOnSelectedDay) {
-      return generateGeoJSONSource([]);
-    }
+    // When observations exist, always show the interpolated (or nearest) position
+    // from currentData — it already handles dates outside observation range by
+    // clamping to first/last observation. Only hide when currentData is null
+    // (which cannot happen when hasAnyObservations is true).
     const segments = getSegments(
       currentData?.upperEdgeCoords ?? null,
       currentData?.lowerEdgeCoords ?? null,
     );
     return generateGeoJSONSource(segments);
-  }, [currentData, hasAnyObservations, hasObservationOnSelectedDay]);
+  }, [currentData, hasAnyObservations]);
 
   const normalizeName = (name: string) => name.toLowerCase().replace(/ё/g, 'е').trim();
   const riskFromScore = (score: number): RiskLevel => {
@@ -672,14 +687,32 @@ export default function MapEditor() {
   };
 
   const getLevelWithFallback = (stn: any, date: Date): number | null => {
-    const directKey = date.toISOString().substring(0, 10);
-    if (stn.levels[directKey] !== undefined) return stn.levels[directKey];
+    const dayKey = date.toISOString().substring(0, 10);
 
+    // Direct YYYY-MM-DD key lookup (monthly archive format)
+    if (stn.levels[dayKey] !== undefined) return stn.levels[dayKey];
+
+    // Scan all keys — operational bulletin stores full ISO timestamps as keys
+    // e.g. "2026-05-08T08:00:00.000Z". Match by day prefix.
+    const allKeys = Object.keys(stn.levels);
+    const matchingToday = allKeys.filter((k) => k.startsWith(dayKey));
+    if (matchingToday.length > 0) {
+      // Pick the latest reading for the day (e.g. 16:00 over 08:00)
+      matchingToday.sort();
+      return stn.levels[matchingToday[matchingToday.length - 1]];
+    }
+
+    // Try previous days (up to 5) with the same prefix scan
     for (let i = 1; i <= 5; i++) {
       const probe = new Date(date);
       probe.setDate(probe.getDate() - i);
-      const key = probe.toISOString().substring(0, 10);
-      if (stn.levels[key] !== undefined) return stn.levels[key];
+      const probeKey = probe.toISOString().substring(0, 10);
+      if (stn.levels[probeKey] !== undefined) return stn.levels[probeKey];
+      const probeMatching = allKeys.filter((k) => k.startsWith(probeKey));
+      if (probeMatching.length > 0) {
+        probeMatching.sort();
+        return stn.levels[probeMatching[probeMatching.length - 1]];
+      }
     }
     return null;
   };
@@ -1234,7 +1267,7 @@ export default function MapEditor() {
           );
         })}
 
-        {hasObservationOnSelectedDay && currentData && (
+        {hasAnyObservations && currentData && (
           <>
             <Marker longitude={currentData.upperEdgeCoords[0]} latitude={currentData.upperEdgeCoords[1]} anchor="bottom">
               {viewState.zoom >= 6 ? (
@@ -1310,12 +1343,12 @@ export default function MapEditor() {
         )}
 
         {/* Section Speeds Tags on Map */}
-        {viewState.zoom >= 5.5 && sectionSpeeds.map((section: any, i: number) => {
+        {viewState.zoom >= 6.5 && sectionSpeeds.map((section: any, i: number) => {
           if (!section.midCoords) return null;
           return (
             <Marker key={`speed-${i}`} longitude={section.midCoords[0]} latitude={section.midCoords[1]} anchor="center">
-              <div className="bg-white/90 backdrop-blur-sm border border-blue-200 px-2 py-1 rounded-lg shadow-sm text-[10px] font-bold text-blue-800 hover:scale-110 hover:z-50 cursor-pointer transition-transform whitespace-nowrap flex items-center gap-1 group">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+              <div className="bg-white/95 border border-blue-200 px-2 py-1 rounded-lg shadow-sm text-[10px] font-bold text-blue-800 hover:scale-110 hover:z-50 cursor-pointer transition-transform whitespace-nowrap flex items-center gap-1 group">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                 {section.speed.toFixed(1)} км/сут
                 <span className="text-[8px] text-blue-400 font-medium">({(section.speed / 24).toFixed(1)} км/ч)</span>
                 

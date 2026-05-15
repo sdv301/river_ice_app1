@@ -13,6 +13,7 @@ import Tooltip from './components/Tooltip';
 import { motion, AnimatePresence } from 'motion/react';
 import { SETTLEMENTS } from './utils/riverData';
 import { DATA_SOURCE_MODE } from './config/runtimeConfig';
+import { initDataFromServer } from './utils/serverData';
 
 const TOUR_STEPS: TourStep[] = [
   {
@@ -107,34 +108,41 @@ export default function App() {
     setMapCenter,
     mapViewportIceSpeed,
   } = useAppStore();
-  const { loadData, checkYandexForUpdates: checkWaterLevelsYandexForUpdates } = useWaterLevelStore();
+  const { loadData } = useWaterLevelStore();
   const [isDbOpen, setIsDbOpen] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
+      console.log('[App] Initializing data...');
+      // Load local cache if any
       await loadData();
-      if (cancelled) return;
-      // First sync from disk (Yandex or internal) after local snapshot is shown.
-      if (DATA_SOURCE_MODE !== 'none') {
-        checkWaterLevelsYandexForUpdates().catch(() => {});
-        checkIceYandexForUpdates().catch(() => {});
+      
+      // Load fresh pre-parsed data from server
+      const ok = await initDataFromServer();
+      if (ok) {
+        setIsDataLoaded(true);
+      } else if (DATA_SOURCE_MODE !== 'none') {
+        // Fallback or handle error
+        console.warn('[App] Failed to load server data, will retry in background');
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [loadData, checkWaterLevelsYandexForUpdates, checkIceYandexForUpdates]);
+  }, [loadData]);
 
   React.useEffect(() => {
     if (DATA_SOURCE_MODE === 'none') return;
-    const timer = window.setInterval(() => {
-      checkWaterLevelsYandexForUpdates().catch(() => {});
-      checkIceYandexForUpdates().catch(() => {});
+    // Auto-refresh from server every 15 mins
+    const timer = window.setInterval(async () => {
+      console.log('[App] Periodic data refresh...');
+      await initDataFromServer();
     }, WATER_LEVEL_AUTO_SYNC_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [checkWaterLevelsYandexForUpdates, checkIceYandexForUpdates]);
+  }, []);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -201,7 +209,7 @@ export default function App() {
 
         {/* Speed / Distance Indicator */}
         {currentSpeed !== null && (
-          <div className="absolute bottom-16 left-3 z-10 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 min-w-[240px] hover:scale-105 print-hide">
+          <div className="absolute bottom-16 left-3 z-10 bg-white border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 min-w-[240px] hover:scale-105 print-hide">
             <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-100">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />

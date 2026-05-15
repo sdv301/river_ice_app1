@@ -204,6 +204,7 @@ interface IceStore {
   syncFileCount: number;
   lastDiskModified: string | null;
   loadYearData: (year: number) => void;
+  setObservations: (obs: IceObservation[]) => void;
   setCurrentDate: (date: string) => void;
   setDraftJamCoords: (coords: [number, number] | null) => void;
   addObservation: (obs: Omit<IceObservation, 'id'>) => void;
@@ -264,6 +265,15 @@ export const useIceStore = create<IceStore>((set, get) => ({
         jams: [],
       });
     }
+  },
+
+  setObservations: (obs: IceObservation[]) => {
+    const snapped = obs.map(o => ({
+      ...o,
+      upperEdgeCoords: snapToRiver(o.upperEdgeCoords),
+      lowerEdgeCoords: snapToRiver(o.lowerEdgeCoords),
+    }));
+    set({ observations: snapped });
   },
 
   fetchFromYandexDisk: async () => {
