@@ -4,123 +4,245 @@ import path from 'node:path';
 import { DataProcessor } from './dataProcessor';
 
 const app = express();
+app.set('etag', false);
+
+/** Данные льда/уровней не кэшируем в браузере (иначе 304 и устаревший JSON). */
+function noStoreJson(_req: express.Request, res: express.Response, next: express.NextFunction) {
+  res.setHeader('Cache-Control', 'no-store, must-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+}
+
 const host = process.env.INTERNAL_DATA_HOST ?? '0.0.0.0';
 const port = Number(process.env.INTERNAL_DATA_PORT ?? 8787);
 const dataDir = path.resolve(process.env.INTERNAL_DATA_DIR ?? path.join(process.cwd(), 'internal-data'));
+const syncDir = path.resolve(process.env.INTERNAL_DATA_SYNC_DIR ?? dataDir);
 
-// Ensure data dir exists
-await fs.mkdir(dataDir, { recursive: true }).catch(() => {});
+await fs.mkdir(syncDir, { recursive: true }).catch(() => {});
 
-const processor = new DataProcessor(dataDir);
+const processor = new DataProcessor(syncDir);
+const sourceDirs = (): string[] => (syncDir === dataDir ? [dataDir] : [dataDir, syncDir]);
+const allowedExt = new Set(['.xlsx', '.xls', '.csv']);
+
+async function countExcelFilesOnDisk(): Promise<number> {
+  const names = new Set<string>();
+  for (const dir of sourceDirs()) {
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (e.isFile() && allowedExt.has(path.extname(e.name).toLowerCase())) {
+          names.add(e.name);
+        }
+      }
+    } catch {
+      // directory may be missing or unreadable
+    }
+  }
+  return names.size;
+}
 await processor.loadFromCache();
+
+/** При первом запуске в Docker: сразу читаем ./internal-data, не ждём синхронизацию с Яндексом. */
+async function ensureLocalDataProcessed(): Promise<void> {
+  const filesOnDisk = await countExcelFilesOnDisk();
+  if (filesOnDisk === 0) return;
+  if (processor.needsReprocess() || processor.getData().observations.length === 0) {
+    console.log(`[Startup] Processing ${filesOnDisk} Excel file(s) from ${sourceDirs().join(', ')}...`);
+    await processor.processFiles(sourceDirs());
+    console.log(
+      `[Startup] Ready: ${processor.getData().observations.length} ice observations, ${processor.getData().levels.length} level rows`,
+    );
+  }
+}
+await ensureLocalDataProcessed();
+
+let lastSyncTime: string | null = null;
+let lastSyncError: string | null = null;
+let lastDownloadedCount = 0;
 
 const yandexPublicKey =
   process.env.YANDEX_PUBLIC_KEY ?? 'https://disk.yandex.ru/d/LENyBdYBr2B3rA';
 const yandexApiBase =
   process.env.YANDEX_API_BASE ?? 'https://cloud-api.yandex.net/v1/disk/public/resources';
 
-const allowedExt = new Set(['.xlsx', '.xls', '.csv']);
-
 const toDiskPath = (candidate: string): string => {
   const normalized = path.normalize(candidate).replace(/^(\.\.(\/|\\|$))+/, '');
+  for (const dir of sourceDirs()) {
+    const resolved = path.resolve(dir, normalized);
+    if (ensureInsideDir(resolved, dir)) return resolved;
+  }
   return path.resolve(dataDir, normalized);
 };
 
-const ensureInsideDataDir = (resolvedPath: string): boolean => {
-  const rel = path.relative(dataDir, resolvedPath);
+const ensureInsideDir = (resolvedPath: string, baseDir: string): boolean => {
+  const rel = path.relative(baseDir, resolvedPath);
   return rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
 };
+
+const ensureInsideDataDir = (resolvedPath: string): boolean =>
+  sourceDirs().some((dir) => ensureInsideDir(resolvedPath, dir));
+
+async function listAllYandexFiles(): Promise<any[]> {
+  const all: any[] = [];
+  let offset = 0;
+  const limit = 1000;
+  for (;;) {
+    const listUrl = `${yandexApiBase}?public_key=${encodeURIComponent(yandexPublicKey)}&limit=${limit}&offset=${offset}`;
+    const listRes = await fetch(listUrl);
+    if (!listRes.ok) throw new Error(`Yandex list failed: ${listRes.status}`);
+    const data = (await listRes.json()) as { _embedded?: { items?: any[] } };
+    const items = data._embedded?.items ?? [];
+    all.push(...items);
+    if (items.length < limit) break;
+    offset += limit;
+  }
+  return all;
+}
 
 /**
  * Background Task: Sync with Yandex Disk and re-process files
  */
-async function syncAndProcess() {
+async function syncAndProcess(options?: {
+  forceReprocess?: boolean;
+}): Promise<{ downloadedCount: number; filesOnDisk: number }> {
   console.log('[Sync] Starting Yandex Disk sync...');
+  let downloadedCount = 0;
   try {
-    // 1. List files from Yandex
-    const listUrl = `${yandexApiBase}?public_key=${encodeURIComponent(yandexPublicKey)}&limit=1000`;
-    const listRes = await fetch(listUrl);
-    if (!listRes.ok) throw new Error(`Yandex list failed: ${listRes.status}`);
-    
-    const data = await listRes.json() as any;
-    const items = data._embedded?.items || [];
-    
-    let downloadedCount = 0;
+    const items = await listAllYandexFiles();
+
     for (const item of items) {
       if (item.type !== 'file' || !allowedExt.has(path.extname(item.name).toLowerCase())) continue;
-      
-      const localPath = path.join(dataDir, item.name);
-      // Check if file exists and has same size
+
+      const localPath = path.join(syncDir, item.name);
       try {
         const stats = await fs.stat(localPath);
-        if (stats.size === item.size) continue; 
+        if (stats.size === item.size) continue;
       } catch {
         // File doesn't exist
       }
 
       console.log(`[Sync] Downloading new/updated file: ${item.name}`);
-      const fileRes = await fetch(item.file); // Yandex provides direct 'file' link in list
+      const fileRes = await fetch(item.file);
       if (!fileRes.ok) continue;
-      
+
       const buf = Buffer.from(await fileRes.arrayBuffer());
       await fs.writeFile(localPath, buf);
       downloadedCount++;
     }
 
-    if (downloadedCount > 0 || processor.getData().observations.length === 0) {
+    const filesOnDisk = await countExcelFilesOnDisk();
+
+    const shouldReprocess =
+      options?.forceReprocess ||
+      downloadedCount > 0 ||
+      processor.getData().observations.length === 0 ||
+      processor.needsReprocess();
+    if (shouldReprocess) {
       console.log(`[Sync] Downloaded ${downloadedCount} files. Starting re-process...`);
-      await processor.processFiles(dataDir);
+      await processor.processFiles(sourceDirs());
       console.log('[Sync] Processing complete.');
     } else {
       console.log('[Sync] No new files found.');
     }
-  } catch (err) {
+
+    lastSyncTime = new Date().toISOString();
+    lastSyncError = null;
+    lastDownloadedCount = downloadedCount;
+    return { downloadedCount, filesOnDisk };
+  } catch (err: any) {
+    lastSyncError = err?.message ?? String(err);
     console.error('[Sync] Error during sync:', err);
+    return { downloadedCount, filesOnDisk: await countExcelFilesOnDisk() };
   }
 }
 
-// Run sync every 15 minutes
-setInterval(syncAndProcess, 15 * 60 * 1000);
-// Initial sync
-syncAndProcess();
+function scheduleSync(): void {
+  void syncAndProcess().catch((err) => {
+    console.error('[Sync] Unhandled sync error:', err);
+  });
+}
+
+setInterval(scheduleSync, 15 * 60 * 1000);
+scheduleSync();
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, dataDir, lastUpdated: new Date().toISOString() });
+  res.json({ ok: true, dataDir, syncDir, lastUpdated: new Date().toISOString() });
 });
 
 /**
  * NEW: Pre-parsed data endpoint for frontend
  */
-app.get('/api/data/all', (_req, res) => {
-  res.json(processor.getData());
+function filterByYear<T extends { date: string }>(items: T[], year: number | null): T[] {
+  if (!year || Number.isNaN(year)) return items;
+  return items.filter((item) => new Date(item.date).getUTCFullYear() === year);
+}
+
+app.get('/api/data/status', noStoreJson, async (_req, res) => {
+  try {
+    const filesOnDisk = await countExcelFilesOnDisk();
+    res.json({
+      ...processor.getStatus(filesOnDisk),
+      lastSyncTime: lastSyncTime ?? processor.getStatus(filesOnDisk).lastSyncTime,
+      lastSyncError,
+      lastDownloadedCount,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error?.message ?? 'Status failed' });
+  }
 });
 
-app.post('/api/data/refresh', async (_req, res) => {
-  await syncAndProcess();
-  res.json({ ok: true });
+app.get('/api/data/all', noStoreJson, (req, res) => {
+  const yearRaw = req.query.year;
+  const year = yearRaw != null && yearRaw !== '' ? Number(yearRaw) : null;
+  const data = processor.getData();
+  res.json({
+    observations: filterByYear(data.observations, year),
+    levels: filterByYear(data.levels, year),
+    lastUpdated: lastSyncTime,
+  });
+});
+
+app.post('/api/data/refresh', noStoreJson, async (_req, res) => {
+  try {
+    const result = await syncAndProcess({ forceReprocess: true });
+    const status = processor.getStatus(result.filesOnDisk);
+    res.json({
+      ok: true,
+      ...result,
+      ...status,
+      lastSyncTime,
+      lastSyncError,
+    });
+  } catch (error: any) {
+    res.status(500).json({ ok: false, error: error?.message ?? 'Refresh failed', lastSyncError });
+  }
 });
 
 app.get('/api/disk/files', async (_req, res) => {
   try {
-    const entries = await fs.readdir(dataDir, { withFileTypes: true });
-    const files = await Promise.all(
-      entries
-        .filter((entry) => entry.isFile() && allowedExt.has(path.extname(entry.name).toLowerCase()))
-        .map(async (entry) => {
-          const absolute = path.resolve(dataDir, entry.name);
-          const stat = await fs.stat(absolute);
-          return {
-            type: 'file' as const,
-            name: entry.name,
-            path: entry.name,
-            size: stat.size,
-            created: stat.birthtime.toISOString(),
-            modified: stat.mtime.toISOString(),
-            mime_type: '',
-          };
-        }),
+    const nested = await Promise.all(
+      sourceDirs().map(async (dir) => {
+        const entries = await fs.readdir(dir, { withFileTypes: true });
+        return Promise.all(
+          entries
+            .filter((entry) => entry.isFile() && allowedExt.has(path.extname(entry.name).toLowerCase()))
+            .map(async (entry) => {
+              const absolute = path.resolve(dir, entry.name);
+              const stat = await fs.stat(absolute);
+              return {
+                type: 'file' as const,
+                name: entry.name,
+                path: entry.name,
+                size: stat.size,
+                created: stat.birthtime.toISOString(),
+                modified: stat.mtime.toISOString(),
+                mime_type: '',
+              };
+            }),
+        );
+      }),
     );
-    res.json({ items: files });
+    res.json({ items: nested.flat() });
   } catch (error: any) {
     res.status(500).json({ error: error?.message ?? 'Failed to list files' });
   }
@@ -322,5 +444,5 @@ app.get('/api/tiles/arcgis/:z/:y/:x', async (req, res) => {
 
 app.listen(port, host, () => {
   console.log(`Internal data API listening on http://${host}:${port}`);
-  console.log(`Serving files from ${dataDir}`);
+  console.log(`Serving files from ${dataDir} (sync cache: ${syncDir})`);
 });

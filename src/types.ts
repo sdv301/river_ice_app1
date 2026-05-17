@@ -24,6 +24,8 @@ export interface IceObservation {
   lowerEdgeCoords: [number, number]; // [lng, lat]
   notes?: string;
   locationName?: string;
+  /** Только явление в пункте (без кромок в файле) — маркер на карте, не полоса ледохода. */
+  phenomenonOnly?: boolean;
 }
 
 export type IceStatus = 'water' | 'drift' | 'ice';

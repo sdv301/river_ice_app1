@@ -3,11 +3,15 @@ import { createPortal } from 'react-dom';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getSegments, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
+import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { utcCalendarDay } from '../utils/calendarDay';
 import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera, Video, Radio } from 'lucide-react';
-import { CAMERA_MAP } from './SettlementInfoPanel';
+import { CAMERA_MAP } from '../config/cameraMap';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
-import { SETTLEMENTS } from '../utils/riverData';
+import { SETTLEMENTS, lenaRiverFeature } from '../utils/riverData';
+import { featureCollection } from '@turf/turf';
 import { useAppStore } from '../store/appStore';
 import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
@@ -24,10 +28,10 @@ import {
 } from '../config/runtimeConfig';
 import { patchBasinStyleUrls, resolveBasinStyleAssetsBase } from '../utils/basinStyleAssets';
 import { mapTransformRequest } from '../utils/mapProxy';
+import { waterRiskScoreFromLevels } from '../utils/waterLevelRisk';
 
 type MapType = 'satellite' | 'vector' | 'basin' | 'local';
 type RiskLevel = 'normal' | 'watch' | 'warning' | 'danger';
-const WATER_RISE_ALERT_CM = 10;
 const RISK_LABELS: Record<RiskLevel, string> = {
   normal: 'Норма',
   watch: 'Внимание',
@@ -41,45 +45,7 @@ type RiskNotification = {
   level: RiskLevel;
 };
 
-type PhenomenonKind = 'water' | 'drift' | 'freeze' | 'jam' | 'unknown';
-const PHENOMENON_INFO: Record<PhenomenonKind, { title: string; description: string }> = {
-  water: {
-    title: 'Чистая вода',
-    description: 'Участок свободен ото льда или наблюдается вода на льду.',
-  },
-  drift: {
-    title: 'Ледоход',
-    description: 'Наблюдается движение льда, подвижки, закраины или разводья.',
-  },
-  freeze: {
-    title: 'Ледостав',
-    description: 'Фиксируется устойчивый ледяной покров на участке реки.',
-  },
-  jam: {
-    title: 'Затор',
-    description: 'Обнаружено скопление льда с риском подпора воды.',
-  },
-  unknown: {
-    title: 'Не определено',
-    description: 'Есть отметка наблюдения, но тип явления не распознан.',
-  },
-};
-
-function detectPhenomenonKind(notes?: string, locationName?: string): PhenomenonKind {
-  const text = `${notes ?? ''} ${locationName ?? ''}`.toLowerCase();
-  if (text.includes('затор') || text.includes('навал')) return 'jam';
-  if (text.includes('чистая вода') || text.includes('вода на льду')) return 'water';
-  if (text.includes('ледостав')) return 'freeze';
-  if (
-    text.includes('ледоход') ||
-    text.includes('подвижк') ||
-    text.includes('закраин') ||
-    text.includes('развод')
-  ) {
-    return 'drift';
-  }
-  return 'unknown';
-}
+import { detectPhenomenonKind, PHENOMENON_INFO, type PhenomenonKind } from '../utils/phenomena';
 
 const MAP_STYLES: Record<MapType, any> = {
   'local': {
@@ -312,22 +278,22 @@ export default function MapEditor() {
     return MAP_STYLES[mapType] as (typeof MAP_STYLES)[MapType];
   }, [mapType, basinStyleSpec]);
 
+  const currentDay = useMemo(() => utcCalendarDay(currentDate), [currentDate]);
+  const hasAnyObservations = observations.length > 0;
+
   const observationPoints = useMemo(() => {
-    return observations.flatMap((obs) => {
-      return [
-        {
-          id: `${obs.id}-upper`,
-          coords: obs.upperEdgeCoords,
-          type: 'upper' as const,
-        },
-        {
-          id: `${obs.id}-lower`,
-          coords: obs.lowerEdgeCoords,
-          type: 'lower' as const,
-        },
-      ];
-    });
-  }, [observations]);
+    if (!currentData) return [];
+    const [uLng, uLat] = currentData.upperEdgeCoords;
+    const [lLng, lLat] = currentData.lowerEdgeCoords;
+    const coincident = Math.hypot(uLng - lLng, uLat - lLat) < 1e-6;
+    if (coincident) {
+      return [{ id: 'current-edge', coords: currentData.lowerEdgeCoords, type: 'lower' as const }];
+    }
+    return [
+      { id: 'current-upper', coords: currentData.upperEdgeCoords, type: 'upper' as const },
+      { id: 'current-lower', coords: currentData.lowerEdgeCoords, type: 'lower' as const },
+    ];
+  }, [currentData]);
   const observationPointsGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
     features: observationPoints.map((pt) => ({
@@ -342,19 +308,31 @@ export default function MapEditor() {
       },
     })),
   }), [observationPoints]);
-  const currentDay = useMemo(() => new Date(currentDate).toISOString().slice(0, 10), [currentDate]);
-  const hasAnyObservations = observations.length > 0;
+
+  const riverBaselineGeoJSON = useMemo(
+    () =>
+      featureCollection([
+        {
+          ...lenaRiverFeature,
+          properties: { ...lenaRiverFeature.properties, color: '#94a3b8', status: 'baseline' },
+        },
+      ]),
+    [],
+  );
   const phenomenonMarkers = useMemo(() => {
-    return observations.map((obs) => {
-      const kind = detectPhenomenonKind(obs.notes, obs.locationName);
-      return {
-        id: `ph-${obs.id}`,
-        day: new Date(obs.date).toISOString().slice(0, 10),
-        kind,
-        coords: interpolateAlongRiver(obs.upperEdgeCoords, obs.lowerEdgeCoords, 0.5),
-      };
-    });
-  }, [observations]);
+    return observations
+      .filter((obs) => obs.phenomenonOnly && utcCalendarDay(obs.date) === currentDay)
+      .slice(0, 24)
+      .map((obs) => {
+        const kind = detectPhenomenonKind(obs.notes, obs.locationName);
+        return {
+          id: `ph-${obs.id}`,
+          day: currentDay,
+          kind,
+          coords: obs.upperEdgeCoords,
+        };
+      });
+  }, [observations, currentDay]);
 
   const getRelativePoint = (e: React.MouseEvent) => {
     const rect = mapRootRef.current?.getBoundingClientRect();
@@ -642,10 +620,7 @@ export default function MapEditor() {
     if (!hasAnyObservations) {
       return generateGeoJSONSource(getSegments(null, null));
     }
-    // When observations exist, always show the interpolated (or nearest) position
-    // from currentData — it already handles dates outside observation range by
-    // clamping to first/last observation. Only hide when currentData is null
-    // (which cannot happen when hasAnyObservations is true).
+    // Только фактическая сводка за выбранный день (без интерполяции между датами).
     const segments = getSegments(
       currentData?.upperEdgeCoords ?? null,
       currentData?.lowerEdgeCoords ?? null,
@@ -659,31 +634,6 @@ export default function MapEditor() {
     if (score >= 2) return 'warning';
     if (score >= 1) return 'watch';
     return 'normal';
-  };
-
-  const toRadians = (deg: number) => deg * (Math.PI / 180);
-  const distanceKm = (a: [number, number], b: [number, number]) => {
-    const earthRadiusKm = 6371;
-    const dLat = toRadians(b[1] - a[1]);
-    const dLng = toRadians(b[0] - a[0]);
-    const lat1 = toRadians(a[1]);
-    const lat2 = toRadians(b[1]);
-    const h =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-    return 2 * earthRadiusKm * Math.asin(Math.sqrt(h));
-  };
-
-  const getJamRiskScore = (point: [number, number], activeJams: IceJam[]) => {
-    let score = 0;
-    for (const jam of activeJams) {
-      const km = distanceKm(point, jam.coords);
-      if (km > 45) continue;
-      if (jam.severity === 'high') score = Math.max(score, 3);
-      else if (jam.severity === 'medium') score = Math.max(score, 2);
-      else score = Math.max(score, 1);
-    }
-    return score;
   };
 
   const getLevelWithFallback = (stn: any, date: Date): number | null => {
@@ -720,68 +670,62 @@ export default function MapEditor() {
   const activeJams = useMemo(() => jams.filter((jam) => jam.status === 'active'), [jams]);
 
   const stationRiskIndexes = useMemo(() => {
-    // Prefer the actual timeline date (which reflects user's slider position)
-    // and fall back to the observation date or today.
-    const baseDate = currentData?.date ?? currentDate ?? new Date().toISOString();
+    const baseDate = currentDate ?? new Date().toISOString();
     const targetDate = new Date(baseDate);
     if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
-    const prevDate = new Date(targetDate);
-    prevDate.setDate(prevDate.getDate() - 3);
     const byCoord = new globalThis.Map<string, number>();
     const byStationName = new globalThis.Map<string, number>();
 
     for (const stn of stations) {
-      if (!stn.levels || Object.keys(stn.levels).length === 0 || !stn.coords) continue;
+      if (!stn.levels || Object.keys(stn.levels).length === 0) continue;
       const currentLevel = getLevelWithFallback(stn, targetDate);
-      const prevLevel = getLevelWithFallback(stn, prevDate);
-      if (currentLevel === null) continue;
+      const riskScore = waterRiskScoreFromLevels(currentLevel, stn.criticalLevel);
+      if (riskScore === 0 && currentLevel === null) continue;
 
-      let riskScore = 0;
-      const critical = Number(stn.criticalLevel);
-      if (Number.isFinite(critical) && critical > 0) {
-        const diff = critical - currentLevel;
-        // Risk level based on percentage of critical level:
-        //   ≥ 70% (30% remaining) → red (danger/ОЯ)
-        //   ≥ 50% (50% remaining) → yellow (warning/НЯ)
-        //   < 50% → green (normal)
-        const ratio = currentLevel / critical;
-        if (ratio >= 0.7) riskScore = Math.max(riskScore, 3);
-        else if (ratio >= 0.5) riskScore = Math.max(riskScore, 2);
+      if (stn.coords) {
+        const coordKey = `${stn.coords[0].toFixed(4)},${stn.coords[1].toFixed(4)}`;
+        byCoord.set(coordKey, Math.max(byCoord.get(coordKey) ?? 0, riskScore));
       }
-
-      if (prevLevel !== null) {
-        const rise = currentLevel - prevLevel;
-        // Water rise alerts are now capped at Yellow (2) unless ratio is already high
-        if (rise >= WATER_RISE_ALERT_CM * 2.5) riskScore = Math.max(riskScore, 2);
-        else if (rise >= WATER_RISE_ALERT_CM) riskScore = Math.max(riskScore, 1);
-      }
-
-      const jamRisk = getJamRiskScore(stn.coords, activeJams);
-      // Ice jam proximity is now capped at Yellow (2) unless ratio is already high
-      riskScore = Math.max(riskScore, jamRisk >= 3 ? 2 : jamRisk);
-
-      const coordKey = `${stn.coords[0].toFixed(4)},${stn.coords[1].toFixed(4)}`;
-      const nameKey = normalizeName(stn.name);
-      byCoord.set(coordKey, Math.max(byCoord.get(coordKey) ?? 0, riskScore));
-      byStationName.set(nameKey, Math.max(byStationName.get(nameKey) ?? 0, riskScore));
+      byStationName.set(normalizeName(stn.name), Math.max(byStationName.get(normalizeName(stn.name)) ?? 0, riskScore));
     }
 
     return { byCoord, byStationName };
-  }, [stations, currentData?.date, currentDate, activeJams]);
+  }, [stations, currentDate]);
 
+  /** Цвет города на карте — только уровень воды (ОЯ/НЯ), без заторов и ледохода. */
   const settlementRiskByName = useMemo(() => {
+    const baseDate = currentDate ?? new Date().toISOString();
+    const targetDate = new Date(baseDate);
+    if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
     const riskMap = new globalThis.Map<string, number>();
+
     for (const settlement of SETTLEMENTS) {
       const coordKey = `${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`;
-      const stationRisk = Math.max(
-        stationRiskIndexes.byCoord.get(coordKey) ?? 0,
-        stationRiskIndexes.byStationName.get(normalizeName(settlement.name)) ?? 0,
-      );
-      const jamRisk = getJamRiskScore(settlement.coords, activeJams);
-      riskMap.set(coordKey, Math.max(stationRisk, jamRisk));
+      const nameKey = normalizeName(settlement.name);
+      let score =
+        stationRiskIndexes.byStationName.get(nameKey) ??
+        stationRiskIndexes.byCoord.get(coordKey) ??
+        0;
+
+      if (score === 0) {
+        const stn =
+          stations.find((s) => normalizeName(s.name) === nameKey) ??
+          stations.find(
+            (s) =>
+              s.coords &&
+              Math.abs(s.coords[0] - settlement.coords[0]) < 0.02 &&
+              Math.abs(s.coords[1] - settlement.coords[1]) < 0.02,
+          );
+        if (stn) {
+          const level = getLevelWithFallback(stn, targetDate);
+          score = waterRiskScoreFromLevels(level, stn.criticalLevel);
+        }
+      }
+
+      riskMap.set(coordKey, score);
     }
     return riskMap;
-  }, [activeJams, stationRiskIndexes]);
+  }, [stations, currentDate, stationRiskIndexes]);
 
   useEffect(() => {
     const pushInAppNotification = (message: string, level: RiskLevel) => {
@@ -824,7 +768,7 @@ export default function MapEditor() {
           Notification.permission === 'granted'
         ) {
           try {
-            new Notification('Оповещение по ледоходу', { body: message });
+            new Notification('Уровень воды', { body: message });
           } catch {
             // HTTP / небезопасный контекст — в ряде браузеров Notification недоступен
           }
@@ -930,7 +874,7 @@ export default function MapEditor() {
   }, [setSelectedSettlement]);
 
   const visibleStations = useMemo(() => {
-    const baseDate = currentData?.date ?? currentDate ?? new Date().toISOString();
+    const baseDate = currentDate ?? new Date().toISOString();
     const targetDate = new Date(baseDate);
     if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
     return stations
@@ -955,7 +899,7 @@ export default function MapEditor() {
         };
       })
       .filter(Boolean) as { stn: any; level: number; riskLevel: RiskLevel }[];
-  }, [stations, viewState.zoom, mapBounds, currentData?.date, currentDate, stationRiskIndexes]);
+  }, [stations, viewState.zoom, mapBounds, currentDate, stationRiskIndexes]);
 
   const visibleSettlements = useMemo(() => {
     return SETTLEMENTS
@@ -1150,6 +1094,18 @@ export default function MapEditor() {
           />
         </Source>
 
+        <Source id="river-baseline" type="geojson" data={riverBaselineGeoJSON}>
+          <Layer
+            id="river-baseline-line"
+            type="line"
+            paint={{
+              'line-color': '#94a3b8',
+              'line-width': 2,
+              'line-opacity': 0.65,
+            }}
+          />
+        </Source>
+
         <Source id="river-data" type="geojson" data={geojsonSource}>
           <Layer
             id="river-line-glow"
@@ -1165,9 +1121,19 @@ export default function MapEditor() {
             id="river-line-casing"
             type="line"
             paint={{
-              'line-color': '#0f172a',
-              'line-width': 8,
-              'line-opacity': 0.6
+              'line-color': [
+                'case',
+                ['==', ['get', 'status'], 'ice'],
+                '#64748b',
+                '#0f172a',
+              ],
+              'line-width': [
+                'case',
+                ['==', ['get', 'status'], 'ice'],
+                9,
+                8,
+              ],
+              'line-opacity': 0.75,
             }}
           />
           <Layer
@@ -1175,7 +1141,12 @@ export default function MapEditor() {
             type="line"
             paint={{
               'line-color': ['get', 'color'],
-              'line-width': 4,
+              'line-width': [
+                'case',
+                ['==', ['get', 'status'], 'ice'],
+                5,
+                4,
+              ],
             }}
           />
         </Source>
@@ -1443,6 +1414,17 @@ export default function MapEditor() {
           </Popup>
         )}
       </Map>
+
+      {currentData && currentData.exact === false && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-md pointer-events-none px-3 py-2 rounded-lg border border-violet-200 bg-violet-50/95 text-violet-950 text-xs font-medium shadow-md text-center">
+          Кромки оценены по соседним сводкам — в файле за этот день нет координат двух кромок.
+        </div>
+      )}
+      {hasAnyObservations && !currentData && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-md pointer-events-none px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/95 text-amber-950 text-xs font-medium shadow-md text-center">
+          На {format(new Date(currentDate), 'd MMMM yyyy', { locale: ru })} нет сводки по кромкам льда — на карте только русло. Выберите день с данными ледохода (в списке «Дни в базе»).
+        </div>
+      )}
 
       {hoverInfo && hoverInfo.feature?.properties?.status && (
         <div 

@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx';
 import type { WaterLevelStation } from '../store/waterLevelStore';
 import { parseExcelData } from './excelParser';
 import { SETTLEMENTS } from './riverData';
+import { normalizeEdgeOrder, riverLocationKm } from './mapUtils';
 import {
   DATA_SOURCE_MODE,
   INTERNAL_DATA_API_BASE,
@@ -146,7 +147,7 @@ function tryMergeSecondaryHeaderRow(
   return merged;
 }
 
-function parseSheetRows(ws: XLSX.WorkSheet): any[] {
+export function parseSheetRows(ws: XLSX.WorkSheet): any[] {
   const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' }) as unknown[][];
   if (rows.length === 0) return [];
 
@@ -312,6 +313,7 @@ export interface ParsedObservation {
   notes?: string;
   upperSettlement?: string;
   lowerSettlement?: string;
+  phenomenonOnly?: boolean;
 }
 
 /**
@@ -490,34 +492,142 @@ function isInvalidPointName(name: string): boolean {
   return INVALID_POINT_TOKENS.has(normalized);
 }
 
-/**
- * Resolve a settlement name to coordinates.
- * Tries exact match first, then partial/fuzzy match.
- */
-export function resolveSettlementCoords(name: string): [number, number] | null {
-  if (!name) return null;
+/** Варианты названия из «Лена • Синск», «1 участок» и т.п. */
+function settlementNameCandidates(name: string): string[] {
+  const raw = String(name).trim();
+  if (!raw) return [];
+  const seen = new Set<string>();
+  const add = (s: string) => {
+    const t = s.replace(/\s+/g, ' ').trim();
+    const stripped = t.replace(/\d+\s*участок/gi, '').trim();
+    for (const x of [t, stripped]) {
+      if (x.length >= 2) seen.add(x);
+    }
+  };
+  add(raw);
+  for (const part of raw.split(/[•·|/]/)) add(part.trim());
+  add(raw.replace(/^лена\s*[•·|]?\s*/i, '').trim());
+  return [...seen];
+}
 
+const MIN_EDGE_SPAN_KM = 8;
+
+function allSettlementCoords(): [number, number][] {
+  const out: [number, number][] = [];
+  const seen = new Set<string>();
+  const push = (c: [number, number]) => {
+    const key = `${c[0].toFixed(4)},${c[1].toFixed(4)}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(c);
+  };
+  for (const coords of Object.values(SETTLEMENT_COORDS)) push(coords);
+  for (const s of SETTLEMENTS) push(s.coords);
+  return out;
+}
+
+/** Ближайший н.п. выше или ниже по течению от точки на Лене. */
+export function nearestSettlementAlongRiver(
+  ref: [number, number],
+  direction: 'upstream' | 'downstream',
+): [number, number] | null {
+  const refKm = riverLocationKm(ref);
+  let best: [number, number] | null = null;
+  let bestGap = Infinity;
+  for (const coords of allSettlementCoords()) {
+    const km = riverLocationKm(coords);
+    const gap = direction === 'upstream' ? refKm - km : km - refKm;
+    if (gap >= MIN_EDGE_SPAN_KM && gap < bestGap) {
+      bestGap = gap;
+      best = coords;
+    }
+  }
+  return best;
+}
+
+/**
+ * Одна точка в файле → вторая кромка по н.п. из «Пункт» или ближайшему по руслу.
+ */
+function expandSinglePointEdges(
+  upper: [number, number],
+  lower: [number, number],
+  pointName?: string,
+): { upper: [number, number]; lower: [number, number]; settlementNote?: string } {
+  const ordered = normalizeEdgeOrder({ upperEdgeCoords: upper, lowerEdgeCoords: lower });
+  let u = ordered.upperEdgeCoords;
+  let l = ordered.lowerEdgeCoords;
+  const span = riverLocationKm(l) - riverLocationKm(u);
+  if (span >= MIN_EDGE_SPAN_KM) {
+    return { upper: u, lower: l };
+  }
+
+  const ref = l;
+  const refKm = riverLocationKm(ref);
+  let settlement: [number, number] | null = null;
+  if (pointName) {
+    for (const candidate of settlementNameCandidates(pointName)) {
+      settlement = resolveSettlementCoordsOne(candidate);
+      if (settlement) break;
+    }
+  }
+
+  if (settlement) {
+    const sk = riverLocationKm(settlement);
+    if (sk < refKm - 0.5) {
+      return {
+        upper: settlement,
+        lower: ref,
+        settlementNote: `верхняя кромка по н.п. ${pointName}`,
+      };
+    }
+    if (sk > refKm + 0.5) {
+      return {
+        upper: ref,
+        lower: settlement,
+        settlementNote: `нижняя кромка по н.п. ${pointName}`,
+      };
+    }
+  }
+
+  const upstream = nearestSettlementAlongRiver(ref, 'upstream');
+  if (upstream) {
+    return {
+      upper: upstream,
+      lower: ref,
+      settlementNote: 'верхняя кромка по ближайшему н.п. выше по течению',
+    };
+  }
+
+  const downstream = nearestSettlementAlongRiver(ref, 'downstream');
+  if (downstream) {
+    return {
+      upper: ref,
+      lower: downstream,
+      settlementNote: 'нижняя кромка по ближайшему н.п. ниже по течению',
+    };
+  }
+
+  return { upper: u, lower: l };
+}
+
+function resolveSettlementCoordsOne(name: string): [number, number] | null {
   const normalized = String(name).trim();
   const normalizedKey = normalizeSettlementName(normalized);
   if (isInvalidPointName(normalizedKey)) return null;
 
-  // Alias remap for known operational naming variants.
   const aliased = SETTLEMENT_ALIASES[normalizedKey];
   if (aliased && SETTLEMENT_COORDS[aliased]) {
     return SETTLEMENT_COORDS[aliased];
   }
 
-  // Exact match
   if (SETTLEMENT_COORDS[normalized]) {
     return SETTLEMENT_COORDS[normalized];
   }
 
-  // Case-insensitive + ё/е normalized match
   for (const [key, coords] of Object.entries(SETTLEMENT_COORDS)) {
     if (normalizeSettlementName(key) === normalizedKey) return coords;
   }
 
-  // Partial match (settlement name contains search or vice versa)
   for (const [key, coords] of Object.entries(SETTLEMENT_COORDS)) {
     const normalizedCandidate = normalizeSettlementName(key);
     if (normalizedCandidate.includes(normalizedKey) || normalizedKey.includes(normalizedCandidate)) {
@@ -525,8 +635,6 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
     }
   }
 
-  // Stem-like match for frequent adjective ending drift:
-  // e.g. "Крестовское" vs "Крестовский"
   const stem = normalizedKey
     .replace(/(ский|ское|ская|ские|ских|скому|ским|скои|ской)$/u, 'ск')
     .replace(/(ый|ий|ая|ое|ые|ой|ом|ам|ах)$/u, '')
@@ -543,7 +651,6 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
     }
   }
 
-  // Fallback: major settlements from riverData (names not duplicated in SETTLEMENT_COORDS)
   for (const s of SETTLEMENTS) {
     const sn = normalizeSettlementName(s.name);
     if (sn === normalizedKey) return s.coords;
@@ -557,13 +664,26 @@ export function resolveSettlementCoords(name: string): [number, number] | null {
 }
 
 /**
+ * Resolve a settlement name to coordinates.
+ * Tries exact match first, then partial/fuzzy match.
+ */
+export function resolveSettlementCoords(name: string): [number, number] | null {
+  if (!name) return null;
+  for (const candidate of settlementNameCandidates(name)) {
+    const coords = resolveSettlementCoordsOne(candidate);
+    if (coords) return coords;
+  }
+  return null;
+}
+
+/**
  * Extract a date from a file name like
  * "Сведения на карту р. Лена 09.05.2026.xlsx" or
  * "Сведения в карту р. Лена (гидрология) на 08.05.2026 г..xlsx"
  */
-function extractDateFromFileName(fileName: string): string | null {
-  // Match DD.MM.YYYY pattern
-  const match = fileName.match(/(\d{2})\.(\d{2})\.(\d{4})/);
+export function extractDateFromFileName(fileName: string): string | null {
+  // Match DD.MM.YYYY or DD,MM.YYYY (typo in some Yandex uploads)
+  const match = fileName.match(/(\d{2})[.,](\d{2})[.,](\d{4})/);
   if (!match) return null;
   const [, day, month, year] = match;
   
@@ -586,6 +706,11 @@ function extractDateFromFileName(fileName: string): string | null {
   const dateStr = `${year}-${month}-${day}T${hour}:${minute}:00Z`;
   const d = new Date(dateStr);
   return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
+/** Дата сводки только из имени файла (без «сегодня» и fileModified). */
+export function bulletinDateISO(fileName: string): string | null {
+  return extractDateFromFileName(fileName);
 }
 
 /**
@@ -612,6 +737,7 @@ function collectIceCoordinateWarnings(
   label: string,
   upper: [number, number],
   lower: [number, number],
+  options?: { allowCoincidentEdges?: boolean },
 ): string[] {
   const out: string[] = [];
   const rowLabel = (label || `строка ${rowIndex + 1}`).trim();
@@ -630,12 +756,248 @@ function collectIceCoordinateWarnings(
   check('нижняя кромка', lower);
 
   const d = Math.hypot(upper[0] - lower[0], upper[1] - lower[1]);
-  if (d < 1e-6) {
+  if (d < 1e-6 && !options?.allowCoincidentEdges) {
     out.push(`${fileName}: ${rowLabel} — верхняя и нижняя кромка совпадают по координатам.`);
-  } else if (d < 0.05) {
+  } else if (d < 0.05 && !options?.allowCoincidentEdges) {
     out.push(
       `${fileName}: ${rowLabel} — верх и низ очень близко на карте (${(d * 111).toFixed(0)} км по прямой). Проверьте, что в файле две разные пары «широта/долгота» и что столбцы не перепутаны.`,
     );
+  }
+  return out;
+}
+
+/** Оперативная сводка «Сведения на карту»: много строк (Пункт + явления + пары Широта/Долгота). */
+function isOperationalBulletinFormat(rows: any[]): boolean {
+  if (rows.length === 0) return false;
+  const keys = Object.keys(rows[0]);
+  return keys.includes('Пункт') && (keys.includes('Широта') || keys.includes('Долгота'));
+}
+
+/**
+ * Две пары «широта/долгота» в сводке: первая — нижняя кромка, вторая — верхняя
+ * (колонки «Нижняя кромка лдх» / «Верхняя кромка лдх» или Широта + Широта__2).
+ */
+function extractLabeledLowerUpperPairs(row: any): {
+  lower: [number, number] | null;
+  upper: [number, number] | null;
+} {
+  const lower = inferLngLatPair(
+    extractNum(row, ['Нижняя кромка.Долгота', 'Низ.Долгота', 'Долгота']),
+    extractNum(row, ['Нижняя кромка.Широта', 'Низ.Широта', 'Широта']),
+  );
+  const upper = inferLngLatPair(
+    extractNum(row, ['Верхняя кромка.Долгота', 'Верх.Долгота', 'Долгота__2', 'Долгота_2']),
+    extractNum(row, ['Верхняя кромка.Широта', 'Верх.Широта', 'Широта__2', 'Широта_2']),
+  );
+  if (lower && upper) return { lower, upper };
+
+  const lat2 = extractNum(row, ['Широта__2', 'Широта_2']);
+  const lng2 = extractNum(row, ['Долгота__2', 'Долгота_2']);
+  if (lower && lat2 !== null && lng2 !== null) {
+    const upperFromSecond = inferLngLatPair(lng2, lat2);
+    if (upperFromSecond) return { lower, upper: upperFromSecond };
+  }
+
+  return { lower: lower ?? null, upper: upper ?? null };
+}
+
+/** Кромки из одной строки оперативной сводки (две пары координат или одна). */
+function extractOperationalRowEdges(row: any): {
+  upper: [number, number];
+  lower: [number, number];
+  label: string;
+  phenomenon: string;
+  allowCoincident: boolean;
+  fromFileCoords: boolean;
+} | null {
+  const pointName = extractStr(row, ['Пункт']);
+  const phenomenon =
+    extractStr(row, ['Явление', 'Phenomenon', 'phenomenon', 'Ледовые явления (примечания)']) || '';
+  const label = pointName || phenomenon;
+
+  const labeled = extractLabeledLowerUpperPairs(row);
+  if (labeled.lower && labeled.upper) {
+    const ordered = normalizeEdgeOrder({
+      upperEdgeCoords: labeled.upper,
+      lowerEdgeCoords: labeled.lower,
+    });
+    return {
+      upper: ordered.upperEdgeCoords,
+      lower: ordered.lowerEdgeCoords,
+      label,
+      phenomenon,
+      allowCoincident: false,
+      fromFileCoords: true,
+    };
+  }
+
+  const opLng = extractNum(row, ['Долгота']);
+  const opLat = extractNum(row, ['Широта']);
+  const opLng2 = extractNum(row, ['Долгота__2', 'Долгота_2']);
+  const opLat2 = extractNum(row, ['Широта__2', 'Широта_2']);
+  const pair1 = inferLngLatPair(opLng, opLat);
+  const pair2 = inferLngLatPair(opLng2, opLat2);
+
+  if (pair1 && pair2) {
+    const ordered = normalizeEdgeOrder({
+      upperEdgeCoords: pair1,
+      lowerEdgeCoords: pair2,
+    });
+    return {
+      upper: ordered.upperEdgeCoords,
+      lower: ordered.lowerEdgeCoords,
+      label,
+      phenomenon,
+      allowCoincident: false,
+      fromFileCoords: true,
+    };
+  }
+
+  if (pair1 || pair2) {
+    const ref = pair1 ?? pair2!;
+    const expanded = expandSinglePointEdges(ref, ref, pointName);
+    return {
+      upper: expanded.upper,
+      lower: expanded.lower,
+      label,
+      phenomenon,
+      allowCoincident: false,
+      fromFileCoords: true,
+    };
+  }
+
+  return null;
+}
+
+/**
+ * Сводка за день: самая южная верхняя кромка и самая северная нижняя по всем строкам файла.
+ */
+function aggregateOperationalBulletin(
+  rows: any[],
+  fileName: string,
+  fileModified: string | undefined,
+  coordWarnings?: string[],
+): ParsedObservation | null {
+  let bestUpperKm = Infinity;
+  let bestLowerKm = -Infinity;
+  let bestUpperCoords: [number, number] | null = null;
+  let bestLowerCoords: [number, number] | null = null;
+  const labels: string[] = [];
+  const noteParts: string[] = [];
+
+  for (let i = 0; i < rows.length; i++) {
+    const edges = extractOperationalRowEdges(rows[i]);
+    if (!edges?.fromFileCoords) continue;
+
+    const ukm = riverLocationKm(edges.upper);
+    const lkm = riverLocationKm(edges.lower);
+    if (ukm < bestUpperKm) {
+      bestUpperKm = ukm;
+      bestUpperCoords = edges.upper;
+    }
+    if (lkm > bestLowerKm) {
+      bestLowerKm = lkm;
+      bestLowerCoords = edges.lower;
+    }
+    if (edges.label) labels.push(edges.label);
+    if (edges.phenomenon) noteParts.push(edges.phenomenon);
+
+    if (coordWarnings) {
+      coordWarnings.push(
+        ...collectIceCoordinateWarnings(
+          fileName,
+          i,
+          edges.label,
+          edges.upper,
+          edges.lower,
+          { allowCoincidentEdges: edges.allowCoincident },
+        ),
+      );
+    }
+  }
+
+  if (!bestUpperCoords || !bestLowerCoords || !Number.isFinite(bestUpperKm)) return null;
+
+  const dateISO = bulletinDateISO(fileName);
+  if (!dateISO) return null;
+
+  const spanKm = bestLowerKm - bestUpperKm;
+  if (spanKm < MIN_EDGE_SPAN_KM) {
+    const labelHint = labels[0] ?? '';
+    const expanded = expandSinglePointEdges(bestUpperCoords, bestLowerCoords, labelHint);
+    bestUpperCoords = expanded.upper;
+    bestLowerCoords = expanded.lower;
+    if (expanded.settlementNote) noteParts.push(expanded.settlementNote);
+  }
+
+  const uniqueLabels = [...new Set(labels)].slice(0, 5);
+  return normalizeEdgeOrder({
+    date: dateISO,
+    locationName:
+      uniqueLabels.length > 0
+        ? uniqueLabels.join(', ')
+        : fileName.replace(/\.xlsx?$/i, ''),
+    upperEdgeCoords: bestUpperCoords,
+    lowerEdgeCoords: bestLowerCoords,
+    notes: noteParts.length ? [...new Set(noteParts)].slice(0, 10).join('; ') : undefined,
+  });
+}
+
+function rowHasOperationalEdgeCoords(row: any): boolean {
+  const labeled = extractLabeledLowerUpperPairs(row);
+  if (labeled.lower || labeled.upper) return true;
+  return Boolean(
+    inferLngLatPair(extractNum(row, ['Долгота']), extractNum(row, ['Широта'])) ||
+      inferLngLatPair(extractNum(row, ['Долгота__2', 'Долгота_2']), extractNum(row, ['Широта__2', 'Широта_2'])),
+  );
+}
+
+const TRIVIAL_PHENOMENON_TEXT = new Set([
+  '',
+  'нет информации',
+  'нет данных',
+  'нет сведений',
+  '—',
+  '-',
+]);
+
+/** Пункты с ледовыми явлениями без координат кромок — маркеры на карте по справочнику н.п. */
+function parseOperationalPhenomenonPoints(
+  rows: any[],
+  fileName: string,
+  _fileModified?: string,
+): ParsedObservation[] {
+  const dateISO = bulletinDateISO(fileName);
+  if (!dateISO) return [];
+  const dayKey = dateISO.slice(0, 10);
+  const out: ParsedObservation[] = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    const pointName = extractStr(row, ['Пункт']);
+    if (!pointName || isInvalidPointName(pointName)) continue;
+    const phenomenon =
+      extractStr(row, ['Явление', 'Phenomenon', 'phenomenon', 'Ледовые явления (примечания)']) || '';
+    const phenomenonNorm = phenomenon.trim().toLowerCase();
+    if (!phenomenon || TRIVIAL_PHENOMENON_TEXT.has(phenomenonNorm)) continue;
+    if (rowHasOperationalEdgeCoords(row)) continue;
+
+    const coords = resolveSettlementCoords(pointName);
+    if (!coords) continue;
+
+    const key = `${dayKey}|${normalizeSettlementName(pointName)}|${phenomenonNorm.slice(0, 60)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    out.push({
+      id: `ph-${dayKey}-${normalizeSettlementName(pointName)}-${seen.size}`,
+      date: dateISO,
+      locationName: pointName,
+      upperEdgeCoords: coords,
+      lowerEdgeCoords: coords,
+      notes: phenomenon,
+      phenomenonOnly: true,
+    });
   }
   return out;
 }
@@ -656,22 +1018,31 @@ function collectIceCoordinateWarnings(
  *   Дата, Верхняя кромка, Верх.Lng, Верх.Lat, Нижняя кромка, Низ.Lng, Низ.Lat, Примечания
  *   When coordinates are provided they override the settlement lookup.
  *
- * Format 4 (operational "Шаблон 2.xlsx"):
+ * Format 4 (operational "Сведения на карту"):
  *   Река, Пункт, Ледовые явления (примечания),
- *   Широта/Долгота (нижняя кромка), Широта/Долгота (верхняя кромка),
- *   расположения на воде
+ *   Широта/Долгота и Широта__2/Долгота__2 — две точки кромок (порядок по км вдоль Лены),
+ *   все строки с координатами агрегируются в одну сводку за файл
  *
  * Format 5 (hydro-bulletin without coordinates):
  *   Река, Пункт, Ледовые явления (примечания)
  *   No explicit coordinates — resolved from Пункт via SETTLEMENT_COORDS.
  *   Date extracted from the file name.
  */
-function parseIceRows(
+export function parseIceRows(
   rows: any[],
   fileName: string,
   fileModified?: string,
   coordWarnings?: string[],
 ): ParsedObservation[] {
+  if (isOperationalBulletinFormat(rows)) {
+    if (!bulletinDateISO(fileName)) return [];
+    const out: ParsedObservation[] = [];
+    const aggregated = aggregateOperationalBulletin(rows, fileName, fileModified, coordWarnings);
+    if (aggregated) out.push(aggregated);
+    out.push(...parseOperationalPhenomenonPoints(rows, fileName, fileModified));
+    if (out.length > 0) return out;
+  }
+
   const observations: ParsedObservation[] = [];
 
   for (let i = 0; i < rows.length; i++) {
@@ -700,6 +1071,39 @@ function parseIceRows(
 
       lowerCoords = inferLngLatPair(lowerLng, lowerLat);
       if (lowerLng !== null && lowerLat !== null && lowerCoords) lowerFromNumeric = true;
+
+      // Operational bulletin: две пары координат → порядок по км вдоль русла (normalizeEdgeOrder)
+      if (!lowerCoords && !upperCoords) {
+        const opLng = extractNum(row, ['Долгота']);
+        const opLat = extractNum(row, ['Широта']);
+        const opLng2 = extractNum(row, ['Долгота__2', 'Долгота_2']);
+        const opLat2 = extractNum(row, ['Широта__2', 'Широта_2']);
+        const pair1 = inferLngLatPair(opLng, opLat);
+        const pair2 = inferLngLatPair(opLng2, opLat2);
+        if (pair1 && pair2) {
+          const ordered = normalizeEdgeOrder({
+            upperEdgeCoords: pair1,
+            lowerEdgeCoords: pair2,
+          });
+          upperCoords = ordered.upperEdgeCoords;
+          lowerCoords = ordered.lowerEdgeCoords;
+          upperFromNumeric = true;
+          lowerFromNumeric = true;
+        } else if (pair1) {
+          lowerCoords = pair1;
+          lowerFromNumeric = true;
+        } else if (pair2) {
+          upperCoords = pair2;
+          upperFromNumeric = true;
+        }
+      }
+
+      let allowCoincidentEdges = false;
+      if (lowerCoords && !upperCoords && lowerFromNumeric) {
+        upperCoords = lowerCoords;
+        allowCoincidentEdges = true;
+        if (!upperSettlement && lowerSettlement) upperSettlement = lowerSettlement;
+      }
 
       // Format 4 / compound-header: try named columns first (narrow match to avoid mix-up of two lat/lng pairs)
       if (!lowerCoords) {
@@ -800,16 +1204,14 @@ function parseIceRows(
         locationName = [upperSettlement, lowerSettlement].filter(Boolean).join(' – ');
       }
 
-      // ---- Format 5: Пункт — только если нет координат из чисел; иначе не подставлять пункт в «дыру» (слипание кромок) ----
+      // Пункт без координат кромок — гидробюллетень (уровень/явления), не пара кромок на карте
       if (pointName && !isInvalidPointName(pointName)) {
         const pointCoords = resolveSettlementCoords(pointName);
         if (pointCoords) {
           if (!upperCoords && !lowerCoords) {
-            upperCoords = pointCoords;
-            lowerCoords = pointCoords;
-            upperSettlement = pointName;
-            lowerSettlement = pointName;
-          } else if (!upperCoords && !lowerFromNumeric) {
+            continue;
+          }
+          if (!upperCoords && !lowerFromNumeric) {
             upperCoords = pointCoords;
             upperSettlement = pointName;
           } else if (!lowerCoords && !upperFromNumeric) {
@@ -822,37 +1224,70 @@ function parseIceRows(
         }
       }
 
+      const phenomenon = extractStr(row, ['Явление', 'Phenomenon', 'phenomenon', 'Ледовые явления (примечания)']) || '';
+
       // Skip if we couldn't resolve coordinates for either edge
       if (!upperCoords || !lowerCoords) {
-        const upperLabel = upperName || pointName || 'N/A';
-        const lowerLabel = lowerName || pointName || 'N/A';
-        if (!isInvalidPointName(upperLabel) && !isInvalidPointName(lowerLabel)) {
-          console.warn(
-            `Не удалось определить координаты кромок: верх="${upperLabel}", низ="${lowerLabel}" (файл: ${fileName})`
-          );
+        const upperLabel = upperName || pointName || '';
+        const lowerLabel = lowerName || pointName || '';
+        const sameSettlementLabel =
+          Boolean(upperLabel) &&
+          Boolean(lowerLabel) &&
+          normalizeSettlementName(upperLabel) === normalizeSettlementName(lowerLabel);
+        // Строка гидробюллетеня (пункт + явление, без Lat/Lng кромок) — не ошибка ледохода
+        const hydrologyOnlyRow =
+          !upperFromNumeric &&
+          !lowerFromNumeric &&
+          (Boolean(pointName) || Boolean(phenomenon) || sameSettlementLabel);
+        if (hydrologyOnlyRow) {
+          continue;
+        }
+
+        if (!isInvalidPointName(upperLabel || 'N/A') && !isInvalidPointName(lowerLabel || 'N/A')) {
+          const msg = `Не удалось определить координаты кромок: верх="${upperLabel || 'N/A'}", низ="${lowerLabel || 'N/A'}" (файл: ${fileName})`;
+          if (coordWarnings) coordWarnings.push(msg);
+          else console.warn(msg);
         }
         continue;
       }
 
       const notes = extractStr(row, ['Notes', 'Примечания', 'notes']) || '';
-      const phenomenon = extractStr(row, ['Явление', 'Phenomenon', 'phenomenon', 'Ледовые явления (примечания)']) || '';
+      const noteParts = [phenomenon, notes];
+      const pointHint = pointName || lowerName || upperName || locationName;
+      const expandedFinal = expandSinglePointEdges(upperCoords, lowerCoords, pointHint);
+      const pushUpper = expandedFinal.upper;
+      const pushLower = expandedFinal.lower;
+      if (expandedFinal.settlementNote) {
+        noteParts.push(expandedFinal.settlementNote);
+      } else if (allowCoincidentEdges) {
+        noteParts.push('верхняя кромка в файле не указана');
+      }
 
-      observations.push({
-        date: new Date(dateValue || extractDateFromFileName(fileName) || fileModified || Date.now()).toISOString(),
-        locationName,
-        upperEdgeCoords: upperCoords,
-        lowerEdgeCoords: lowerCoords,
-        notes: [phenomenon, notes].filter(Boolean).join(' — ') || undefined,
-        upperSettlement,
-        lowerSettlement,
-      });
+      const parsedDate = new Date(dateValue || bulletinDateISO(fileName) || fileModified || '');
+      if (Number.isNaN(parsedDate.getTime())) continue;
+
+      observations.push(
+        normalizeEdgeOrder({
+          date: parsedDate.toISOString(),
+          locationName,
+          upperEdgeCoords: pushUpper,
+          lowerEdgeCoords: pushLower,
+          notes: noteParts.filter(Boolean).join(' — ') || undefined,
+          upperSettlement,
+          lowerSettlement,
+        }),
+      );
       if (coordWarnings) {
         coordWarnings.push(
-          ...collectIceCoordinateWarnings(fileName, i, locationName, upperCoords, lowerCoords),
+          ...collectIceCoordinateWarnings(fileName, i, locationName, pushUpper, pushLower, {
+            allowCoincidentEdges: false,
+          }),
         );
       }
     } catch (e) {
-      console.warn('Ошибка парсинга строки:', e, row);
+      const msg = `Ошибка парсинга строки в ${fileName}: ${e instanceof Error ? e.message : String(e)}`;
+      if (coordWarnings) coordWarnings.push(msg);
+      else console.warn(msg, row);
     }
   }
 
@@ -864,9 +1299,13 @@ function extractNum(row: any, keys: string[]): number | null {
   for (const key of keys) {
     const val = row[key];
     if (val !== undefined && val !== null && val !== '') {
-      const normalized = typeof val === 'string' ? val.replace(',', '.').trim() : val;
-      const num = Number(normalized);
-      if (!isNaN(num)) return num;
+      if (typeof val === 'number' && Number.isFinite(val)) return val;
+      const s = String(val).replace(',', '.').trim();
+      const m = s.match(/-?\d+(?:\.\d+)?/);
+      if (m) {
+        const num = Number(m[0]);
+        if (!Number.isNaN(num)) return num;
+      }
     }
   }
   return null;
@@ -910,10 +1349,11 @@ const RUSSIAN_MONTHS: Record<string, number> = {
 function isLikelyWaterLevelFile(fileName: string): boolean {
   const lower = fileName.toLowerCase();
   if (lower.includes('инструк') || lower.includes('шаблон')) return false;
+  if (lower.includes('карт') || lower.includes('кромк') || lower.includes('ледоход')) return false;
   return (
     lower.includes('уровн') ||
     lower.includes('уровни воды') ||
-    lower.includes('сведени') ||
+    (lower.includes('сведени') && lower.includes('гидролог')) ||
     lower.includes('гидролог') ||
     lower.includes('water') ||
     lower.includes('level')
@@ -955,12 +1395,27 @@ function normalizeHeaderCell(value: unknown): string {
   return String(value ?? '').toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
+/** Prefer «в 8 час» over «в 20 час 05.05» and similar evening columns. */
+function findOperationalLevelColumnIndex(header: string[]): number {
+  let idx = header.findIndex((h) => h === 'в 8 час');
+  if (idx >= 0) return idx;
+  idx = header.findIndex((h) => /^в\s*8(\s|$|час)/.test(h));
+  if (idx >= 0) return idx;
+  for (let i = 0; i < header.length; i++) {
+    const h = header[i];
+    if (!/^в\s*\d{1,2}/.test(h)) continue;
+    if (/20\s*час/.test(h)) continue;
+    if (/час/.test(h) || h.includes('уровни')) return i;
+  }
+  return header.findIndex((h) => h.includes('уровни'));
+}
+
 /**
  * Parse an operational bulletin sheet with columns like:
  *   Река | Пункт | в 8 час | ... | Ледовые явления
  * and one daily value per station.
  */
-function parseOperationalWaterLevels(
+export function parseOperationalWaterLevels(
   rows: unknown[][],
   dateKey: string,
 ): WaterLevelStation[] {
@@ -971,7 +1426,7 @@ function parseOperationalWaterLevels(
     const headers = (rows[i] ?? []).map(normalizeHeaderCell);
     const hasRiver = headers.some((h) => h === 'река');
     const hasPoint = headers.some((h) => h === 'пункт');
-    const hasLevel = headers.some((h) => h.includes('в 8') || h.match(/в \d{1,2}/) || h.includes('уровни'));
+    const hasLevel = findOperationalLevelColumnIndex(headers) >= 0;
     if (hasRiver && hasPoint && hasLevel) {
       headerRowIndex = i;
       break;
@@ -982,7 +1437,7 @@ function parseOperationalWaterLevels(
   const header = (rows[headerRowIndex] ?? []).map(normalizeHeaderCell);
   const riverIdx = header.findIndex((h) => h === 'река');
   const pointIdx = header.findIndex((h) => h === 'пункт');
-  const levelIdx = header.findIndex((h) => h.includes('в 8') || h.match(/в \d{1,2}/) || h.includes('уровни'));
+  const levelIdx = findOperationalLevelColumnIndex(header);
   if (riverIdx < 0 || pointIdx < 0 || levelIdx < 0) return [];
 
   const byKey = new Map<string, WaterLevelStation>();
@@ -994,6 +1449,7 @@ function parseOperationalWaterLevels(
     if (!river || !name) continue;
 
     const rawLevel = row[levelIdx];
+    if (rawLevel === '' || rawLevel === null || rawLevel === undefined) continue;
     const levelNum = Number(
       typeof rawLevel === 'string' ? rawLevel.replace(',', '.').trim() : rawLevel,
     );

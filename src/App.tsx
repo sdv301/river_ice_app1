@@ -189,7 +189,23 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans relative">
+    <motion.div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans relative">
+      {!isDataLoaded && DATA_SOURCE_MODE !== 'none' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[200] flex items-center justify-center bg-slate-900/30 backdrop-blur-sm"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3"
+          >
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-slate-700">Загрузка данных с сервера…</p>
+          </motion.div>
+        </motion.div>
+      )}
       <div className="flex-1 relative w-full h-full">
         <MapEditor />
 
@@ -291,6 +307,6 @@ export default function App() {
         isActive={isTourActive}
         onFinish={handleFinishTour}
       />
-    </div>
+    </motion.div>
   );
 }

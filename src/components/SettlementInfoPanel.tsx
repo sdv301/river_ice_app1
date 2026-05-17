@@ -1,92 +1,13 @@
-import React, { useState } from 'react';
+﻿import React, { Suspense, lazy, useEffect, useState } from 'react';
 import { X, Info, Droplets, TrendingUp, TrendingDown, Minus, MapPin, Activity, Video, ExternalLink, Radio } from 'lucide-react';
 import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
-import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid } from 'recharts';
 import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
 import UITooltip from './Tooltip';
 
-/**
- * Mapping of settlement names to АрктикТелеком camera info.
- * Supports multiple cameras per settlement.
- */
-export const CAMERA_MAP: Record<string, { section: 'lena' | 'aldan' | 'indi' | 'kolyma' | 'main'; items: { url: string; label: string }[] }> = {
-  // ... (rest of map remains same as previous edit)
-  // р. Лена
-  'Ленск': { 
-    section: 'lena', 
-    items: [
-      { label: 'Набережная', url: 'https://www.a-telecom.ru/ledohod/' },
-      { label: 'Город', url: 'https://www.a-telecom.ru/ledohod/' }
-    ] 
-  },
-  'Олекминск': { 
-    section: 'lena', 
-    items: [
-      { label: 'Юг', url: 'https://www.a-telecom.ru/ledohod/' },
-      { label: 'Север', url: 'https://www.a-telecom.ru/ledohod/' }
-    ] 
-  },
-  'Покровск': { 
-    section: 'lena', 
-    items: [{ label: 'г. Покровск', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Верхний Бестях': { 
-    section: 'lena', 
-    items: [{ label: 'с. Верхний Бестях', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Якутск': { 
-    section: 'lena', 
-    items: [{ label: 'г. Якутск', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Жатай': { 
-    section: 'lena', 
-    items: [{ label: 'пгт Жатай', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Намцы': { 
-    section: 'lena', 
-    items: [{ label: 'Графский берег', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Сангар': { 
-    section: 'lena', 
-    items: [
-      { label: 'Юг', url: 'https://www.a-telecom.ru/ledohod/' },
-      { label: 'Север', url: 'https://www.a-telecom.ru/ledohod/' }
-    ] 
-  },
-  'Жиганск': { 
-    section: 'lena', 
-    items: [{ label: 'г. Жиганск', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  // р. Алдан
-  'Хандыга': { 
-    section: 'aldan', 
-    items: [{ label: 'п. Хандыга', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Усть-Мая': { 
-    section: 'aldan', 
-    items: [{ label: 'с. Усть-Мая', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  // р. Индигирка
-  'Усть-Нера': { 
-    section: 'indi', 
-    items: [{ label: 'п. Усть-Нера', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Зырянка': { 
-    section: 'indi', 
-    items: [{ label: 'п. Зырянка', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  // р. Колыма
-  'Среднеколымск': { 
-    section: 'kolyma', 
-    items: [{ label: 'г. Среднеколымск', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-  'Белая Гора': { 
-    section: 'kolyma', 
-    items: [{ label: 'с. Белая Гора', url: 'https://www.a-telecom.ru/ledohod/' }] 
-  },
-};
+export { CAMERA_MAP } from '../config/cameraMap';
+import { CAMERA_MAP } from '../config/cameraMap';
 
 const SECTION_LABELS: Record<string, string> = {
   lena: 'р. Лена',
@@ -104,6 +25,8 @@ const SECTION_COLORS: Record<string, string> = {
   main:   'from-slate-600 to-slate-700',
 };
 
+const WaterLevelChart = lazy(() => import('./WaterLevelChart'));
+
 
 interface Props {
   settlement: any;
@@ -116,6 +39,15 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   const { getStationHistory, getStation } = useWaterLevelStore();
   const sectionSpeeds = getSectionSpeeds();
   const [showFrame, setShowFrame] = useState(false);
+  const [chartReady, setChartReady] = useState(false);
+
+  useEffect(() => {
+    const rafId = requestAnimationFrame(() => setChartReady(true));
+    return () => {
+      cancelAnimationFrame(rafId);
+      setChartReady(false);
+    };
+  }, [settlement.name]);
 
   const camera = CAMERA_MAP[settlement.name] ?? null;
   const [activeCamIdx, setActiveCamIdx] = useState(0);
@@ -137,7 +69,7 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
   const prevLevel = history.length > 1 ? history[history.length - 2].level : currentLevel;
   const diff = currentLevel - prevLevel;
 
-  // Cm remaining to the critical level (риск):
+  // См до критической отметки (оценка риска):
   const remainingToCritical = stnMeta?.criticalLevel ? stnMeta.criticalLevel - currentLevel : null;
   const ratio = stnMeta?.criticalLevel ? currentLevel / stnMeta.criticalLevel : null;
   const remainingTone = ratio === null
@@ -220,7 +152,7 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
           </div>
 
           <div className="flex items-center gap-2">
-            {camera && (
+            {camera && activeCam?.embedUrl && (
               <button
                 onClick={() => setShowFrame(f => !f)}
                 className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black transition-all border ${
@@ -242,20 +174,28 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
               <ExternalLink className="w-4 h-4" />
               ЯСИА
             </a>
-            <a
-              href={activeCam?.url ?? 'https://www.a-telecom.ru/ledohod/'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black bg-red-500 hover:bg-red-400 border border-red-400 text-white transition-all shadow-lg"
-            >
-              <Radio className="w-4 h-4" />
-              Прямой эфир
-            </a>
+            {activeCam?.embedUrl && (
+              <a
+                href={activeCam.pageUrl ?? activeCam.embedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-black bg-red-500 hover:bg-red-400 border border-red-400 text-white transition-all shadow-lg"
+              >
+                <Radio className="w-4 h-4" />
+                Прямой эфир
+              </a>
+            )}
           </div>
         </div>
 
+        {activeCam?.ysiaOnly && (
+          <p className="mt-3 mb-1 text-xs text-white/80 font-medium px-1">
+            Прямая камера АрктикТелеком для этого пункта недоступна — смотрите трансляцию на ЯСИА.
+          </p>
+        )}
+
         {/* Inline iframe viewer */}
-        {showFrame && camera && activeCam && (
+        {showFrame && camera && activeCam?.embedUrl && (
           <div className="mt-4 mb-1 rounded-2xl overflow-hidden border border-white/20 shadow-2xl bg-black relative">
             <div className="absolute top-2 right-2 z-10 flex gap-2">
                <div className="bg-black/60 px-2 py-1 rounded text-[10px] font-bold text-white uppercase tracking-widest border border-white/10">
@@ -269,7 +209,8 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
                </button>
             </div>
             <iframe
-              src={activeCam.url}
+              key={activeCam.embedUrl}
+              src={activeCam.embedUrl}
               title={`Онлайн-камера: ${settlement.name} - ${activeCam.label}`}
               className="w-full"
               style={{ height: 400, border: 'none' }}
@@ -281,7 +222,7 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
                 <Info className="w-3 h-3" />
                 Трансляция предоставлена АО «АрктикТелеком»
               </div>
-              <a href={activeCam.url} target="_blank" rel="noopener noreferrer" className="underline text-white/80 hover:text-white">
+              <a href={activeCam.pageUrl ?? activeCam.embedUrl} target="_blank" rel="noopener noreferrer" className="underline text-white/80 hover:text-white">
                 Открыть на сайте источника &rarr;
               </a>
             </div>
@@ -290,10 +231,10 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-8 min-w-0">
           
           {/* Left Column: Stats */}
-          <div className="space-y-8">
+          <div className="space-y-8 min-w-0">
             <section>
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Droplets className="w-4 h-4" /> Текущее состояние
@@ -357,43 +298,28 @@ export default function SettlementInfoPanel({ settlement, onClose, currentDate }
           </div>
 
           {/* Right Column: Chart & Logistics */}
-          <div className="space-y-8">
+          <div className="space-y-8 min-w-0">
             <section>
               <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
                 <Activity className="w-4 h-4" /> График уровней (10 дней)
               </h3>
-              <div className="bg-white border border-slate-100 rounded-3xl p-6 h-64 shadow-inner bg-slate-50/10">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData}>
-                    <defs>
-                      <linearGradient id="colorLevel" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                    <XAxis 
-                      dataKey="name" 
-                      axisLine={false} 
-                      tickLine={false} 
-                      tick={{fill: '#94a3b8', fontSize: 10, fontWeight: 700}}
-                      dy={10}
-                    />
-                    <YAxis hide domain={['auto', 'auto']} />
-                    <Tooltip 
-                      contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 20px 25px -5px rgb(0 0 0 / 0.1)', fontWeight: 800, fontSize: '12px' }}
-                    />
-                    <Area 
-                      type="monotone" 
-                      dataKey="level" 
-                      stroke="#3b82f6" 
-                      strokeWidth={4}
-                      fillOpacity={1} 
-                      fill="url(#colorLevel)" 
-                      isAnimationActive={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="bg-white border border-slate-100 rounded-3xl p-4 shadow-inner bg-slate-50/10 w-full min-w-0">
+                {chartReady ? (
+                  <Suspense
+                    fallback={
+                      <div
+                        className="flex items-center justify-center text-sm font-medium text-slate-400"
+                        style={{ height: 240 }}
+                      >
+                        Загрузка графика…
+                      </div>
+                    }
+                  >
+                    <WaterLevelChart data={chartData} />
+                  </Suspense>
+                ) : (
+                  <div style={{ height: 240 }} aria-hidden />
+                )}
               </div>
             </section>
 

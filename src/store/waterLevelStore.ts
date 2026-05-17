@@ -230,6 +230,37 @@ export const useWaterLevelStore = create<WaterLevelState>((set, get) => ({
         filesProcessed: [],
       };
     }
+    if (DATA_SOURCE_MODE !== 'yandex') {
+      set({ isSyncing: true, syncError: null });
+      try {
+        const { refreshDataFromServer } = await import('../utils/serverData');
+        await refreshDataFromServer();
+        const nextSyncTime = new Date().toISOString();
+        set({
+          isSyncing: false,
+          lastSyncTime: nextSyncTime,
+          syncError: null,
+        });
+        writeSyncMetaToStorage({ lastSyncTime: nextSyncTime, lastDiskModified: get().lastDiskModified, syncError: null });
+        return {
+          fileCount: 0,
+          totalFiles: 0,
+          newDateCount: 0,
+          errors: [],
+          filesProcessed: [],
+        };
+      } catch (e: any) {
+        const message = e?.message ?? String(e);
+        set({ isSyncing: false, syncError: message, lastSyncTime: new Date().toISOString() });
+        return {
+          fileCount: 0,
+          totalFiles: 0,
+          newDateCount: 0,
+          errors: [message],
+          filesProcessed: [],
+        };
+      }
+    }
     const { fetchAllWaterLevelData } = await import('../utils/yandexDisk');
     set({ isSyncing: true, syncError: null });
     try {

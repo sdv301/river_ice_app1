@@ -11,6 +11,8 @@ export default defineConfig(({mode}) => {
     .map((host) => host.trim())
     .filter(Boolean);
 
+  const appBuildId = String(Date.now());
+
   const externalRuntimeCaching = tileCacheHosts.map((host) => ({
     urlPattern: new RegExp(`^https:\\/\\/${host.replace(/\./g, '\\.')}\\/.*`, 'i'),
     handler: 'CacheFirst' as const,
@@ -76,6 +78,7 @@ export default defineConfig(({mode}) => {
     },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      __APP_BUILD_ID__: JSON.stringify(appBuildId),
     },
     resolve: {
       alias: {

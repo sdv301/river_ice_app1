@@ -53,10 +53,10 @@
 Снаружи открывается **один** порт: по умолчанию **`3030` на хосте → `3030` в контейнере `gateway`** (HTTP, без TLS). Внутри сети Docker работают:
 
 - **`webapp`** — статика Vite (`/`).
-- **`internal-data-api`** — опционально: локальные Excel из `./internal-data` (`/api/disk/*`), если включён режим `VITE_DATA_SOURCE=internal`.
-- **`gateway`** — `nginx` без TLS, маршрутизация на сервисы выше.
+- **`internal-data-api`** — Excel из `./internal-data`, API `/api/data/*`, прокси спутниковых тайлов `/api/tiles/arcgis/*`.
+- **`gateway`** — `nginx` без TLS, маршрутизация: `/api/` → API, остальное → статика.
 
-По умолчанию в образе включены **`VITE_DATA_SOURCE=yandex`** и **`VITE_ENABLE_EXTERNAL_NETWORK=true`**: автоподтягивание Excel с **публичной папки Яндекс.Диска**. Список и скачивание файлов идут через **`internal-data-api`** (`/api/yandex/list`, `/api/yandex/file`) — **рабочий ПК в LAN может быть без интернета**, если **сервер с Docker** имеет исходящий HTTPS до Яндекса. Тайлы карт (спутник, вектор, бассейны с `frexosm.ru`) по-прежнему запрашиваются **браузером**; без интернета на ПК используйте карту «Офлайн» или VPN на ПК.
+По умолчанию в `docker-compose.yml` и `deploy/docker.env`: **`VITE_DATA_SOURCE=internal`** (каталог `internal-data/` на хосте), спутник через **`/api/tiles/arcgis`** (сервер ходит в Esri, браузеру в интернет не обязателен). Режим **`yandex`**: Excel с публичной папки Яндекс.Диска — синхронизация на **`internal-data-api`**; ПК в LAN может быть без интернета, если контейнер имеет исходящий HTTPS. Вектор Carto и стиль бассейнов с `frexosm.ru` по-прежнему требуют исходящий доступ **с сервера** (или смените URL в `.env`).
 
 ### Файлы
 - `Dockerfile` — сборка фронта; аргументы `VITE_*` задаются из `.env` (см. `deploy/server.env.example`).
@@ -64,13 +64,14 @@
 - `docker-compose.yml` — три сервиса + опциональный `optional-lint`.
 - `deploy/default.conf.template` — шаблон `gateway`: HTTP на `${GATEWAY_HTTP_PORT}` (= `PUBLIC_PORT`), `location /api/` → `internal-data-api:8787`, остальное → `webapp:8080`.
 - `deploy/webapp.nginx.conf` — статика в образе `webapp`.
-- `deploy/server.env.example` — шаблон переменных для `docker compose`.
+- `deploy/docker.env` — готовые переменные для Docker (`internal` + тайлы через API).
+- `deploy/server.env.example` — расширенный шаблон переменных.
 - `deploy/init-certs.sh` — опционально, если снова включите HTTPS для gateway и положите PEM в `deploy/certs/`.
 
 ### Быстрый запуск
 1. Скопируйте переменные и при необходимости поправьте порт (на стенде без root часто удобно `PUBLIC_PORT=8443`):
    ```bash
-   cp deploy/server.env.example .env
+   cp deploy/docker.env .env
    ```
 2. (Опционально) Для HTTPS-режима gateway раньше использовались `deploy/certs/` — сейчас по умолчанию HTTP, сертификаты не нужны.
 3. Если используете режим **`internal`**, положите файлы `.xlsx` / `.xls` / `.csv` в каталог `internal-data/` на хосте (он монтируется в API только на чтение). Для **`yandex`** этот шаг не обязателен.

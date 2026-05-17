@@ -1,10 +1,13 @@
 import { create } from 'zustand';
 import type { IceObservation, IceJam } from '../types';
-import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/mapUtils';
+import { interpolateAlongRiver, snapToRiver, getRiverDistance, getIceDriftDistanceKm, normalizeEdgeOrder } from '../utils/mapUtils';
+import { iceBulletinDays, interpolateObservationForTime } from '../utils/iceObservationResolve';
+import { utcCalendarDay } from '../utils/calendarDay';
 import { nearestPointOnLine, point } from '@turf/turf';
 import { lenaRiverFeature } from '../utils/riverData';
 import { fetchAllIceData } from '../utils/yandexDisk';
 import { DATA_SOURCE_MODE } from '../config/runtimeConfig';
+import { getServerObservationsCache, refreshDataFromServer, fetchDataStatus, initDataFromServer } from '../utils/serverData';
 
 export const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 // Absolute safety cap for clearly broken calculations (unit/parse issues).
@@ -17,13 +20,12 @@ const ICE_SYNC_META_STORAGE_KEY = 'river_ice_sync_meta_v1';
  * - if today is inside the ice-drift season (April – June), use today;
  * - otherwise, use May 1 of that year (the conventional start of monitoring).
  */
-export function getDefaultCurrentDate(year: number): string {
-  const today = new Date();
-  const month = today.getMonth(); // 0-based: 3 = April, 4 = May, 5 = June
-  if (today.getFullYear() === year && month >= 3 && month <= 5) {
-    return today.toISOString();
+/** Начальная дата шкалы: последний день из данных, не «сегодня», если его нет в базе. */
+export function getDefaultCurrentDate(year: number, dataDays?: string[]): string {
+  if (dataDays?.length) {
+    return `${dataDays[dataDays.length - 1]}T12:00:00.000Z`;
   }
-  return new Date(`${year}-05-01T12:00:00Z`).toISOString();
+  return new Date(`${year}-05-01T12:00:00.000Z`).toISOString();
 }
 
 export const ARCHIVE_2025: IceObservation[] = [
@@ -83,7 +85,8 @@ function readObservationDbFromStorage(): IceObservation[] {
     const raw = window.localStorage.getItem(OBS_DB_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed?.observations) ? parsed.observations : [];
+    if (!Array.isArray(parsed?.observations)) return [];
+    return parsed.observations as IceObservation[];
   } catch (e) {
     console.warn('Не удалось прочитать локальную БД ледовых наблюдений:', e);
     return [];
@@ -143,15 +146,27 @@ function normalizeIncomingObservation(obs: {
   lowerEdgeCoords: [number, number];
   locationName?: string;
   notes?: string;
-}): IceObservation {
+  phenomenonOnly?: boolean;
+}): IceObservation | null {
+  if (obs.phenomenonOnly) return null;
+  const ordered = normalizeEdgeOrder({
+    upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+    lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+  });
   return {
     id: `obs-${Math.random().toString(36).slice(2, 11)}`,
     date: obs.date,
-    upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
-    lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+    upperEdgeCoords: ordered.upperEdgeCoords,
+    lowerEdgeCoords: ordered.lowerEdgeCoords,
     locationName: obs.locationName ?? '',
     notes: obs.notes,
   };
+}
+
+function normalizeIncomingBatch(
+  batch: Parameters<typeof normalizeIncomingObservation>[0][],
+): IceObservation[] {
+  return batch.map(normalizeIncomingObservation).filter((o): o is IceObservation => o !== null);
 }
 
 function observationFingerprint(obs: {
@@ -212,7 +227,9 @@ interface IceStore {
   resolveJam: (id: string) => void;
   removeJam: (id: string) => void;
   fetchFromYandexDisk: () => Promise<void>;
+  refreshFromServer: () => Promise<void>;
   checkYandexForUpdates: () => Promise<boolean>;
+  serverStatus: { observationsCount: number; filesOnDisk: number } | null;
   getCurrentObservationData: () => any;
   getDailySpeed: () => any;
   getSectionSpeeds: () => any[];
@@ -232,12 +249,13 @@ interface IceStore {
 
 export const useIceStore = create<IceStore>((set, get) => ({
   ...readIceSyncMetaFromStorage(),
-  observations: observationsForYear(readObservationDbFromStorage(), 2026),
+  observations: [],
   currentDate: getDefaultCurrentDate(2026),
   jams: [],
   draftJamCoords: null,
   isLoading: false,
   syncFileCount: 0,
+  serverStatus: null,
 
   setCurrentDate: (date: string) => set({ currentDate: date }),
   
@@ -251,29 +269,73 @@ export const useIceStore = create<IceStore>((set, get) => ({
           upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
           lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
         })),
-        currentDate: ARCHIVE_2025[0].date,
-        jams: [], // Clear or load 2025 jams
+        currentDate: `${year}-05-01T12:00:00.000Z`,
+        jams: [],
       });
     } else {
-      const db = readObservationDbFromStorage();
-      const yearObs = observationsForYear(db, year).sort(
-        (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      );
+      const source =
+        DATA_SOURCE_MODE === 'yandex'
+          ? readObservationDbFromStorage()
+          : getServerObservationsCache();
+      const yearObs = observationsForYear(source, year).map((obs) =>
+          normalizeEdgeOrder({
+            ...obs,
+            upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+            lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+          }),
+        )
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const bulletinDays = iceBulletinDays(yearObs);
+      const initialDate = getDefaultCurrentDate(year, bulletinDays);
       set({
         observations: yearObs,
-        currentDate: yearObs.length > 0 ? yearObs[0].date : getDefaultCurrentDate(year),
+        currentDate: initialDate,
         jams: [],
       });
     }
   },
 
   setObservations: (obs: IceObservation[]) => {
-    const snapped = obs.map(o => ({
-      ...o,
-      upperEdgeCoords: snapToRiver(o.upperEdgeCoords),
-      lowerEdgeCoords: snapToRiver(o.lowerEdgeCoords),
-    }));
+    const snapped = obs.map((o) => {
+      const ordered = normalizeEdgeOrder({
+        ...o,
+        upperEdgeCoords: snapToRiver(o.upperEdgeCoords),
+        lowerEdgeCoords: snapToRiver(o.lowerEdgeCoords),
+      });
+      return ordered;
+    });
     set({ observations: snapped });
+  },
+
+  refreshFromServer: async () => {
+    if (DATA_SOURCE_MODE === 'none') return;
+    set({ isLoading: true, syncError: null });
+    try {
+      const status = await refreshDataFromServer();
+      const nextSyncTime = status?.lastSyncTime ?? new Date().toISOString();
+      set({
+        isLoading: false,
+        lastSyncTime: nextSyncTime,
+        syncFileCount: status?.lastDownloadedCount ?? 0,
+        syncError: status?.lastSyncError ?? (status?.errors?.length ? status.errors.slice(0, 3).join('; ') : null),
+        serverStatus: status
+          ? { observationsCount: status.observationsCount, filesOnDisk: status.filesOnDisk }
+          : null,
+      });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: nextSyncTime,
+        lastDiskModified: get().lastDiskModified,
+        syncError: get().syncError,
+      });
+    } catch (e: any) {
+      const syncError = e.message || 'Ошибка обновления с сервера';
+      set({ isLoading: false, syncError });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: get().lastSyncTime,
+        lastDiskModified: get().lastDiskModified,
+        syncError,
+      });
+    }
   },
 
   fetchFromYandexDisk: async () => {
@@ -285,11 +347,15 @@ export const useIceStore = create<IceStore>((set, get) => ({
       });
       return;
     }
+    if (DATA_SOURCE_MODE !== 'yandex') {
+      await get().refreshFromServer();
+      return;
+    }
     set({ isLoading: true, syncError: null });
     try {
       const result = await fetchAllIceData();
-      const incomingObs = result.observations.map(normalizeIncomingObservation);
-      const dbBefore = readObservationDbFromStorage();
+      const incomingObs = normalizeIncomingBatch(result.observations);
+      const dbBefore = readObservationDbFromStorage().filter((o) => !o.phenomenonOnly);
       const { merged, newCount } = mergeObservationDb(dbBefore, incomingObs);
       writeObservationDbToStorage(merged);
 
@@ -341,6 +407,22 @@ export const useIceStore = create<IceStore>((set, get) => ({
       set({ isLoading: false, syncError: null });
       return false;
     }
+    if (DATA_SOURCE_MODE !== 'yandex') {
+      const before = get().serverStatus?.observationsCount ?? 0;
+      set({ isLoading: true });
+      const status = await fetchDataStatus();
+      await initDataFromServer();
+      const after = get().observations.length;
+      set({
+        isLoading: false,
+        lastSyncTime: status?.lastSyncTime ?? new Date().toISOString(),
+        serverStatus: status
+          ? { observationsCount: status.observationsCount, filesOnDisk: status.filesOnDisk }
+          : null,
+        syncError: status?.lastSyncError ?? null,
+      });
+      return after !== before || (status?.lastDownloadedCount ?? 0) > 0;
+    }
     const { lastDiskModified } = get();
     set({ isLoading: true, syncError: null });
     try {
@@ -362,7 +444,7 @@ export const useIceStore = create<IceStore>((set, get) => ({
         return false;
       }
 
-      const incomingObs = result.observations.map(normalizeIncomingObservation);
+      const incomingObs = normalizeIncomingBatch(result.observations);
       const dbBefore = readObservationDbFromStorage();
       const { merged } = mergeObservationDb(dbBefore, incomingObs);
       writeObservationDbToStorage(merged);
@@ -448,44 +530,14 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
   getCurrentObservationData() {
     const { observations, currentDate } = get();
-    if (observations.length === 0) return null;
-
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    const targetTime = new Date(currentDate).getTime();
-
-    let before = sorted[0];
-    let after = sorted[sorted.length - 1];
-
-    if (targetTime <= new Date(before.date).getTime()) return { ...before, exact: true };
-    if (targetTime >= new Date(after.date).getTime()) return { ...after, exact: true };
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const time1 = new Date(sorted[i].date).getTime();
-      const time2 = new Date(sorted[i + 1].date).getTime();
-
-      if (targetTime >= time1 && targetTime <= time2) {
-        before = sorted[i];
-        after = sorted[i + 1];
-        break;
-      }
-    }
-
-    const time1 = new Date(before.date).getTime();
-    const time2 = new Date(after.date).getTime();
-    const progress = (targetTime - time1) / (time2 - time1);
-
-    return {
-      date: currentDate,
-      upperEdgeCoords: interpolateAlongRiver(before.upperEdgeCoords, after.upperEdgeCoords, progress),
-      lowerEdgeCoords: interpolateAlongRiver(before.lowerEdgeCoords, after.lowerEdgeCoords, progress),
-      exact: false,
-    };
+    return interpolateObservationForTime(observations, currentDate);
   },
 
   getDailySpeed() {
     const { observations, currentDate } = get();
-    if (observations.length < 2) return null;
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const edgeObs = observations.filter((o) => !o.phenomenonOnly);
+    if (edgeObs.length < 2) return null;
+    const sorted = [...edgeObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const targetTime = new Date(currentDate).getTime();
 
     let before = sorted[0];
@@ -512,9 +564,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
     const daysDiff = (t2 - t1) / (1000 * 60 * 60 * 24);
     
     if (daysDiff === 0) return null;
-    const distanceKm = getRiverDistance(before.upperEdgeCoords, after.upperEdgeCoords);
+    const driftKm = getIceDriftDistanceKm(before, after);
+    if (driftKm === null) return null;
     return {
-      speed: distanceKm / daysDiff,
+      speed: driftKm / daysDiff,
       startLoc: before.locationName || 'Неизвестно',
       endLoc: after.locationName || 'Неизвестно'
     };
@@ -522,9 +575,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
   getSectionSpeeds() {
     const { observations } = get();
-    if (observations.length < 2) return [];
+    const edgeObs = observations.filter((o) => !o.phenomenonOnly);
+    if (edgeObs.length < 2) return [];
     
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...edgeObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const speeds = [];
     for (let i = 0; i < sorted.length - 1; i++) {
       const obs1 = sorted[i];
@@ -535,11 +589,12 @@ export const useIceStore = create<IceStore>((set, get) => ({
       const daysDiff = (t2 - t1) / (1000 * 60 * 60 * 24);
       
       if (daysDiff > 0) {
-        const distanceKm = getRiverDistance(obs1.upperEdgeCoords, obs2.upperEdgeCoords);
+        const driftKm = getIceDriftDistanceKm(obs1, obs2);
+        if (driftKm === null) continue;
         speeds.push({
           startLoc: obs1.locationName || `Участок ${i+1}`,
           endLoc: obs2.locationName || `Участок ${i+2}`,
-          speed: distanceKm / daysDiff,
+          speed: driftKm / daysDiff,
           startDate: obs1.date,
           endDate: obs2.date,
           midCoords: interpolateAlongRiver(obs1.upperEdgeCoords, obs2.upperEdgeCoords, 0.5)
@@ -551,9 +606,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
   getCustomSectionSpeed(start, end) {
     const { observations } = get();
-    if (!start || !end || observations.length < 2) return null;
+    const edgeObs = observations.filter((o) => !o.phenomenonOnly);
+    if (!start || !end || edgeObs.length < 2) return null;
 
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...edgeObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const getRiverLocationKm = (coords: [number, number]) => {
       const snapped = nearestPointOnLine(lenaRiverFeature, point(coords), { units: 'kilometers' });

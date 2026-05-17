@@ -1,3 +1,4 @@
+# cp deploy/docker.env .env  &&  docker compose --env-file .env up -d --build
 services:
   webapp:
     build:
@@ -5,15 +6,17 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_ENABLE_EXTERNAL_NETWORK: ${VITE_ENABLE_EXTERNAL_NETWORK:-true}
-        VITE_DATA_SOURCE: ${VITE_DATA_SOURCE:-yandex}
+        # internal: Excel из ./internal-data; yandex: доп. синхронизация с Диска через API (серверу нужен интернет)
+        VITE_DATA_SOURCE: ${VITE_DATA_SOURCE:-internal}
         VITE_INTERNAL_DATA_API_BASE: ${VITE_INTERNAL_DATA_API_BASE:-/api}
-        VITE_MAP_DEFAULT_TYPE: ${VITE_MAP_DEFAULT_TYPE:-local}
-        VITE_MAP_SATELLITE_TILES_URL: ${VITE_MAP_SATELLITE_TILES_URL:-}
-        VITE_MAP_VECTOR_STYLE_URL: ${VITE_MAP_VECTOR_STYLE_URL:-}
+        VITE_MAP_DEFAULT_TYPE: ${VITE_MAP_DEFAULT_TYPE:-satellite}
+        VITE_MAP_SATELLITE_TILES_URL: ${VITE_MAP_SATELLITE_TILES_URL:-/api/tiles/arcgis/{z}/{y}/{x}}
+        VITE_MAP_VECTOR_STYLE_URL: ${VITE_MAP_VECTOR_STYLE_URL:-https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json}
         VITE_MAP_BASIN_STYLE_URL: ${VITE_MAP_BASIN_STYLE_URL:-/frexosm_basin_style.json}
         VITE_MAP_ASSETS_BASE: ${VITE_MAP_ASSETS_BASE:-https://frexosm.ru}
         VITE_NOMINATIM_ENABLED: ${VITE_NOMINATIM_ENABLED:-false}
         VITE_NOMINATIM_URL: ${VITE_NOMINATIM_URL:-}
+        VITE_YANDEX_PUBLIC_KEY: ${VITE_YANDEX_PUBLIC_KEY:-https://disk.yandex.ru/d/LENyBdYBr2B3rA}
     restart: unless-stopped
     expose:
       - "${WEBAPP_PORT:-8080}"
@@ -47,12 +50,14 @@ services:
     environment:
       INTERNAL_DATA_HOST: ${INTERNAL_DATA_HOST:-0.0.0.0}
       INTERNAL_DATA_DIR: ${INTERNAL_DATA_DIR:-/data}
+      INTERNAL_DATA_SYNC_DIR: ${INTERNAL_DATA_SYNC_DIR:-/cache}
       YANDEX_PUBLIC_KEY: ${VITE_YANDEX_PUBLIC_KEY:-https://disk.yandex.ru/d/LENyBdYBr2B3rA}
       YANDEX_API_BASE: ${VITE_YANDEX_API_BASE:-https://cloud-api.yandex.net/v1/disk/public/resources}
       # Debug: set LOG_LEVEL=debug in .env to see all Yandex API requests
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - ./internal-data:/data:ro
+      - internal-data-sync:/cache
     networks:
       - app_net
     logging:
@@ -118,6 +123,9 @@ services:
       - optional-checks
     networks:
       - app_net
+
+volumes:
+  internal-data-sync:
 
 networks:
   app_net:
