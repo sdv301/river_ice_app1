@@ -1,23 +1,42 @@
 import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import Map, { Source, Layer, Marker, NavigationControl, Popup } from '@vis.gl/react-maplibre';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { getSegments, generateGeoJSONSource } from '../utils/mapUtils';
-import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera } from 'lucide-react';
+import { getSegments, generateGeoJSONSource, interpolateAlongRiver } from '../utils/mapUtils';
+import { format } from 'date-fns';
+import { ru } from 'date-fns/locale';
+import { utcCalendarDay } from '../utils/calendarDay';
+import { Droplets, Snowflake, AlertTriangle, CircleDot, Layers, Home, Printer, X, Crop, Camera, Video, Radio } from 'lucide-react';
+import { CAMERA_MAP } from '../config/cameraMap';
 import Tooltip from './Tooltip';
 import type { IceJam, PickMode } from '../types';
-import { SETTLEMENTS } from '../utils/riverData';
+import { SETTLEMENTS, lenaRiverFeature } from '../utils/riverData';
+import { featureCollection } from '@turf/turf';
 import { useAppStore } from '../store/appStore';
 import { useIceStore } from '../store/iceStore';
 import { useWaterLevelStore } from '../store/waterLevelStore';
+import {
+  EXTERNAL_NETWORK_ALLOWED,
+  MAP_ASSETS_BASE,
+  MAP_BASIN_STYLE_URL,
+  MAP_DEFAULT_TYPE,
+  MAP_SATELLITE_TILES_URL,
+  MAP_VECTOR_STYLE_URL,
+  NOMINATIM_ENABLED,
+  NOMINATIM_URL,
+  publicAssetUrl,
+} from '../config/runtimeConfig';
+import { patchBasinStyleUrls, resolveBasinStyleAssetsBase } from '../utils/basinStyleAssets';
+import { mapTransformRequest } from '../utils/mapProxy';
+import { waterRiskScoreFromLevels } from '../utils/waterLevelRisk';
 
 type MapType = 'satellite' | 'vector' | 'basin' | 'local';
 type RiskLevel = 'normal' | 'watch' | 'warning' | 'danger';
-const WATER_RISE_ALERT_CM = 10;
 const RISK_LABELS: Record<RiskLevel, string> = {
   normal: 'Норма',
-  watch: 'Норма',
-  warning: 'Повышенное внимание',
-  danger: 'Критическая угроза',
+  watch: 'Внимание',
+  warning: 'НЯ (Неблагоприятное явление)',
+  danger: 'ОЯ (Опасное явление)',
 };
 
 type RiskNotification = {
@@ -26,25 +45,9 @@ type RiskNotification = {
   level: RiskLevel;
 };
 
-type PhenomenonKind = 'water' | 'drift' | 'freeze' | 'jam' | 'unknown';
+import { detectPhenomenonKind, PHENOMENON_INFO, type PhenomenonKind } from '../utils/phenomena';
 
-function detectPhenomenonKind(notes?: string, locationName?: string): PhenomenonKind {
-  const text = `${notes ?? ''} ${locationName ?? ''}`.toLowerCase();
-  if (text.includes('затор') || text.includes('навал')) return 'jam';
-  if (text.includes('чистая вода') || text.includes('вода на льду')) return 'water';
-  if (text.includes('ледостав')) return 'freeze';
-  if (
-    text.includes('ледоход') ||
-    text.includes('подвижк') ||
-    text.includes('закраин') ||
-    text.includes('развод')
-  ) {
-    return 'drift';
-  }
-  return 'unknown';
-}
-
-const MAP_STYLES: Record<string, any> = {
+const MAP_STYLES: Record<MapType, any> = {
   'local': {
     version: 8,
     sources: {},
@@ -55,15 +58,27 @@ const MAP_STYLES: Record<string, any> = {
     sources: {
       'esri-satellite': {
         type: 'raster',
-        tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+        tiles: [MAP_SATELLITE_TILES_URL],
         tileSize: 256,
         attribution: 'Esri, Maxar, Earthstar Geographics'
       }
     },
     layers: [{ id: 'satellite', type: 'raster', source: 'esri-satellite', minzoom: 0, maxzoom: 22 }]
   },
-  'vector': 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
-  'basin': '/frexosm_basin_style.json'
+  'vector': MAP_VECTOR_STYLE_URL,
+  'basin': MAP_BASIN_STYLE_URL,
+};
+
+const availableMapTypes = new Set<MapType>(['local']);
+if (MAP_SATELLITE_TILES_URL.trim()) availableMapTypes.add('satellite');
+if (MAP_VECTOR_STYLE_URL.trim()) availableMapTypes.add('vector');
+if (MAP_BASIN_STYLE_URL) availableMapTypes.add('basin');
+
+const resolveInitialMapType = (): MapType => {
+  const preferred = MAP_DEFAULT_TYPE as MapType;
+  if (availableMapTypes.has(preferred)) return preferred;
+  if (availableMapTypes.has('local')) return 'local';
+  return 'satellite';
 };
 
 // Memoized Marker Components for performance
@@ -87,24 +102,35 @@ const StationMarker = React.memo(({
     textClass = 'text-white';
     borderClass = 'border-red-800';
   } else if (riskLevel === 'warning') {
-    colorClass = 'bg-yellow-400';
-    textClass = 'text-yellow-900';
-    borderClass = 'border-yellow-600';
+    colorClass = 'bg-amber-400';
+    textClass = 'text-amber-950';
+    borderClass = 'border-amber-600';
   } else if (riskLevel === 'watch') {
-    colorClass = 'bg-green-500';
-    textClass = 'text-green-800';
-    borderClass = 'border-green-600';
+    colorClass = 'bg-amber-300';
+    textClass = 'text-amber-950';
+    borderClass = 'border-amber-600';
   }
 
   return (
-    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="center">
-      <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 cursor-pointer hover:opacity-100 hover:scale-110 transition-transform`}
+    <Marker longitude={stn.coords![0]} latitude={stn.coords![1]} anchor="bottom" offset={[0, -8]}>
+      <div className="flex flex-col items-center group cursor-pointer"
            onClick={(e) => {
              e.stopPropagation();
              onSelect(stn);
            }}
       >
-        {level} см
+        {CAMERA_MAP[stn.name] && (
+          <div className="flex items-center gap-1 mb-0.5 bg-red-600 px-1 py-0.5 rounded shadow-sm scale-90 group-hover:scale-100 transition-transform">
+             <div className="w-1 h-1 rounded-full bg-white animate-pulse"></div>
+             <Video className="w-2.5 h-2.5 text-white" />
+          </div>
+        )}
+        <div className={`px-1.5 py-0.5 rounded shadow-sm text-[9px] font-bold border ${colorClass} ${textClass} ${borderClass} opacity-90 group-hover:opacity-100 transition-all`}>
+          {level} см
+          {riskLevel === 'danger' && ' (ОЯ)'}
+          {riskLevel === 'warning' && ' (НЯ)'}
+          {riskLevel === 'watch' && ' (Вним.)'}
+        </div>
       </div>
     </Marker>
   );
@@ -128,29 +154,41 @@ const SettlementMarker = React.memo(({
            onSelect(settlement);
          }}
        >
-         <CircleDot className={`w-3 h-3 ${
-           riskLevel === 'danger'
-             ? 'text-red-100 fill-red-500 scale-125'
-             : riskLevel === 'warning'
-               ? 'text-yellow-100 fill-yellow-500 scale-125'
-               : riskLevel === 'watch'
-                 ? 'text-slate-200 fill-slate-600'
-                 : settlement.isMajor
-                   ? 'text-white fill-slate-800 scale-125'
-                   : 'text-slate-200 fill-slate-600'
-         } drop-shadow`} />
+         <div className="relative">
+           <CircleDot className={`w-3 h-3 ${
+             riskLevel === 'danger'
+               ? 'text-red-100 fill-red-500 scale-125'
+               : riskLevel === 'warning'
+                 ? 'text-yellow-100 fill-yellow-500 scale-125'
+                 : riskLevel === 'watch'
+                   ? 'text-amber-900 fill-amber-400 scale-125 drop-shadow-[0_0_6px_rgba(251,191,36,0.95)]'
+                   : settlement.isMajor
+                     ? 'text-white fill-slate-800 scale-125'
+                     : 'text-slate-200 fill-slate-600'
+           } drop-shadow`} />
+           
+           {CAMERA_MAP[settlement.name] && (
+             <div className="absolute -top-2 -right-2 bg-red-600 rounded-full p-0.5 border border-white shadow-sm scale-75 animate-pulse">
+               <Video className="w-2 h-2 text-white" />
+             </div>
+           )}
+         </div>
+
          <span className={`font-bold drop-shadow-[0_1px_3px_rgba(0,0,0,0.9)] whitespace-nowrap px-1 rounded-sm backdrop-blur-[2px] ${
            riskLevel === 'danger'
              ? 'text-red-50 bg-red-700/75 text-xs ring-1 ring-red-300/80 shadow-[0_0_12px_rgba(239,68,68,0.8)] animate-pulse'
              : riskLevel === 'warning'
                ? 'text-yellow-50 bg-yellow-700/75 text-xs ring-1 ring-yellow-300/80'
                : riskLevel === 'watch'
-                 ? 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
+                 ? 'text-amber-950 bg-amber-300/95 text-xs ring-2 ring-amber-500 shadow-[0_0_14px_rgba(245,158,11,0.85)] animate-pulse'
                  : settlement.isMajor
-                   ? 'text-white bg-slate-900/60 text-xs tracking-wide'
-                   : 'text-slate-100 bg-slate-900/40 text-[10px] opacity-90'
+                   ? 'text-white bg-slate-900/80 text-xs tracking-wide'
+                   : 'text-slate-100 bg-slate-900/60 text-[10px] opacity-90'
          }`}>
            {settlement.name}
+           {riskLevel === 'danger' && <span className="ml-1 text-[8px] px-1 bg-red-600 text-white rounded">ОЯ</span>}
+           {riskLevel === 'warning' && <span className="ml-1 text-[8px] px-1 bg-amber-500 text-white rounded">НЯ</span>}
+           {riskLevel === 'watch' && <span className="ml-1 text-[8px] px-1 bg-amber-700 text-white rounded">Вним.</span>}
          </span>
        </div>
     </Marker>
@@ -174,7 +212,8 @@ export default function MapEditor() {
     isAdmin, pickMode, draftUpper, draftLower, 
     setDraftUpper, setDraftLower,
     setSelectedSettlement, selectedSettlement, mapCenter, isSidebarOpen,
-    isPrintCropMode, setIsPrintCropMode, printType, setIsSidebarOpen
+    isPrintCropMode, setIsPrintCropMode, printType, setIsSidebarOpen,
+    setMapViewportIceSpeed,
   } = useAppStore();
   const mapRef = useRef<any>(null);
 
@@ -184,9 +223,16 @@ export default function MapEditor() {
     }
   }, [mapCenter]);
   
-  const [mapType, setMapType] = useState<MapType>('satellite');
+  const [mapType, setMapType] = useState<MapType>(resolveInitialMapType());
+  const [basinStyleSpec, setBasinStyleSpec] = useState<Record<string, unknown> | null>(null);
   const [viewState, setViewState] = useState({ longitude: 129.7, latitude: 62.0, zoom: 5, pitch: 0 });
   const [selectedDistrict, setSelectedDistrict] = useState<{name: string, lngLat: [number, number]} | null>(null);
+  const [activePhenomenon, setActivePhenomenon] = useState<{
+    id: string;
+    coords: [number, number];
+    kind: PhenomenonKind;
+    isCurrent: boolean;
+  } | null>(null);
   const [mapBounds, setMapBounds] = useState<[number, number, number, number] | null>(null);
   const [riskNotifications, setRiskNotifications] = useState<RiskNotification[]>([]);
   const previousSettlementRiskRef = useRef<globalThis.Map<string, number>>(new globalThis.Map<string, number>());
@@ -197,22 +243,57 @@ export default function MapEditor() {
   const [cropStart, setCropStart] = useState<{x: number, y: number} | null>(null);
   const [customCropRect, setCustomCropRect] = useState<{left: number, top: number, width: number, height: number} | null>(null);
   const mapRootRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const styleUrl = typeof MAP_BASIN_STYLE_URL === 'string' ? MAP_BASIN_STYLE_URL : '';
+    if (!styleUrl) {
+      setBasinStyleSpec(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    fetch(styleUrl)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
+      })
+      .then((raw) => {
+        if (cancelled) return;
+        setBasinStyleSpec(patchBasinStyleUrls(raw, resolveBasinStyleAssetsBase()));
+      })
+      .catch(() => {
+        if (!cancelled) setBasinStyleSpec(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [MAP_BASIN_STYLE_URL, MAP_ASSETS_BASE]);
+
+  const resolvedMapStyle = useMemo(() => {
+    if (mapType === 'basin') {
+      if (basinStyleSpec) return basinStyleSpec;
+      return MAP_STYLES.local;
+    }
+    return MAP_STYLES[mapType] as (typeof MAP_STYLES)[MapType];
+  }, [mapType, basinStyleSpec]);
+
+  const currentDay = useMemo(() => utcCalendarDay(currentDate), [currentDate]);
+  const hasAnyObservations = observations.length > 0;
+
   const observationPoints = useMemo(() => {
-    return observations.flatMap((obs) => {
-      return [
-        {
-          id: `${obs.id}-upper`,
-          coords: obs.upperEdgeCoords,
-          type: 'upper' as const,
-        },
-        {
-          id: `${obs.id}-lower`,
-          coords: obs.lowerEdgeCoords,
-          type: 'lower' as const,
-        },
-      ];
-    });
-  }, [observations]);
+    if (!currentData) return [];
+    const [uLng, uLat] = currentData.upperEdgeCoords;
+    const [lLng, lLat] = currentData.lowerEdgeCoords;
+    const coincident = Math.hypot(uLng - lLng, uLat - lLat) < 1e-6;
+    if (coincident) {
+      return [{ id: 'current-edge', coords: currentData.lowerEdgeCoords, type: 'lower' as const }];
+    }
+    return [
+      { id: 'current-upper', coords: currentData.upperEdgeCoords, type: 'upper' as const },
+      { id: 'current-lower', coords: currentData.lowerEdgeCoords, type: 'lower' as const },
+    ];
+  }, [currentData]);
   const observationPointsGeoJSON = useMemo(() => ({
     type: 'FeatureCollection' as const,
     features: observationPoints.map((pt) => ({
@@ -227,21 +308,31 @@ export default function MapEditor() {
       },
     })),
   }), [observationPoints]);
-  const currentDay = useMemo(() => new Date(currentDate).toISOString().slice(0, 10), [currentDate]);
+
+  const riverBaselineGeoJSON = useMemo(
+    () =>
+      featureCollection([
+        {
+          ...lenaRiverFeature,
+          properties: { ...lenaRiverFeature.properties, color: '#94a3b8', status: 'baseline' },
+        },
+      ]),
+    [],
+  );
   const phenomenonMarkers = useMemo(() => {
-    return observations.map((obs) => {
-      const kind = detectPhenomenonKind(obs.notes, obs.locationName);
-      return {
-        id: `ph-${obs.id}`,
-        day: new Date(obs.date).toISOString().slice(0, 10),
-        kind,
-        coords: [
-          (obs.upperEdgeCoords[0] + obs.lowerEdgeCoords[0]) / 2,
-          (obs.upperEdgeCoords[1] + obs.lowerEdgeCoords[1]) / 2,
-        ] as [number, number],
-      };
-    });
-  }, [observations]);
+    return observations
+      .filter((obs) => obs.phenomenonOnly && utcCalendarDay(obs.date) === currentDay)
+      .slice(0, 24)
+      .map((obs) => {
+        const kind = detectPhenomenonKind(obs.notes, obs.locationName);
+        return {
+          id: `ph-${obs.id}`,
+          day: currentDay,
+          kind,
+          coords: obs.upperEdgeCoords,
+        };
+      });
+  }, [observations, currentDay]);
 
   const getRelativePoint = (e: React.MouseEvent) => {
     const rect = mapRootRef.current?.getBoundingClientRect();
@@ -461,115 +552,180 @@ export default function MapEditor() {
   };
 
   useEffect(() => {
+    if (!mapBounds || sectionSpeeds.length === 0) {
+      setMapViewportIceSpeed(null);
+      return;
+    }
+    const [w, south, e, north] = mapBounds;
+    const cx = viewState.longitude;
+    const cy = viewState.latitude;
+    const dist2 = (lng: number, lat: number) => {
+      const dx = lng - cx;
+      const dy = lat - cy;
+      return dx * dx + dy * dy;
+    };
+    const inside = (lng: number, lat: number) => lng >= w && lng <= e && lat >= south && lat <= north;
+    const midsInside = sectionSpeeds.filter(
+      (sec: { midCoords?: [number, number] }) =>
+        sec.midCoords && inside(sec.midCoords[0], sec.midCoords[1]),
+    );
+    const pool = midsInside.length > 0 ? midsInside : sectionSpeeds;
+    let best = pool[0] as { speed: number; startLoc: string; endLoc: string; midCoords: [number, number] };
+    let bestD = dist2(best.midCoords[0], best.midCoords[1]);
+    for (let i = 1; i < pool.length; i++) {
+      const sec = pool[i] as typeof best;
+      const d = dist2(sec.midCoords[0], sec.midCoords[1]);
+      if (d < bestD) {
+        bestD = d;
+        best = sec;
+      }
+    }
+    const next = { speed: best.speed, startLoc: best.startLoc, endLoc: best.endLoc };
+    const prev = useAppStore.getState().mapViewportIceSpeed;
+    if (
+      prev &&
+      Math.abs(prev.speed - next.speed) < 0.05 &&
+      prev.startLoc === next.startLoc &&
+      prev.endLoc === next.endLoc
+    ) {
+      return;
+    }
+    setMapViewportIceSpeed(next);
+  }, [
+    sectionSpeeds,
+    mapBounds,
+    viewState.longitude,
+    viewState.latitude,
+    viewState.zoom,
+    setMapViewportIceSpeed,
+  ]);
+
+  useEffect(() => {
+    return () => setMapViewportIceSpeed(null);
+  }, [setMapViewportIceSpeed]);
+
+  useEffect(() => {
     setViewState(prev => ({ ...prev, pitch: 0 }));
+  }, [mapType]);
+
+  useEffect(() => {
+    if (!availableMapTypes.has(mapType)) {
+      setMapType(resolveInitialMapType());
+    }
   }, [mapType]);
   
   const geojsonSource = useMemo(() => {
+    // When no observations are loaded at all: show a neutral full-river line
+    // so the map is still readable as a reference.
+    if (!hasAnyObservations) {
+      return generateGeoJSONSource(getSegments(null, null));
+    }
+    // Только фактическая сводка за выбранный день (без интерполяции между датами).
     const segments = getSegments(
       currentData?.upperEdgeCoords ?? null,
-      currentData?.lowerEdgeCoords ?? null
+      currentData?.lowerEdgeCoords ?? null,
     );
     return generateGeoJSONSource(segments);
-  }, [currentData]);
+  }, [currentData, hasAnyObservations]);
 
   const normalizeName = (name: string) => name.toLowerCase().replace(/ё/g, 'е').trim();
   const riskFromScore = (score: number): RiskLevel => {
     if (score >= 3) return 'danger';
     if (score >= 2) return 'warning';
+    if (score >= 1) return 'watch';
     return 'normal';
   };
 
-  const toRadians = (deg: number) => deg * (Math.PI / 180);
-  const distanceKm = (a: [number, number], b: [number, number]) => {
-    const earthRadiusKm = 6371;
-    const dLat = toRadians(b[1] - a[1]);
-    const dLng = toRadians(b[0] - a[0]);
-    const lat1 = toRadians(a[1]);
-    const lat2 = toRadians(b[1]);
-    const h =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
-    return 2 * earthRadiusKm * Math.asin(Math.sqrt(h));
-  };
-
-  const getJamRiskScore = (point: [number, number], activeJams: IceJam[]) => {
-    let score = 0;
-    for (const jam of activeJams) {
-      const km = distanceKm(point, jam.coords);
-      if (km > 45) continue;
-      if (jam.severity === 'high') score = Math.max(score, 3);
-      else if (jam.severity === 'medium') score = Math.max(score, 2);
-      else score = Math.max(score, 1);
-    }
-    return score;
-  };
-
   const getLevelWithFallback = (stn: any, date: Date): number | null => {
-    const directKey = date.toISOString().substring(0, 10);
-    if (stn.levels[directKey] !== undefined) return stn.levels[directKey];
+    const dayKey = date.toISOString().substring(0, 10);
 
+    // Direct YYYY-MM-DD key lookup (monthly archive format)
+    if (stn.levels[dayKey] !== undefined) return stn.levels[dayKey];
+
+    // Scan all keys — operational bulletin stores full ISO timestamps as keys
+    // e.g. "2026-05-08T08:00:00.000Z". Match by day prefix.
+    const allKeys = Object.keys(stn.levels);
+    const matchingToday = allKeys.filter((k) => k.startsWith(dayKey));
+    if (matchingToday.length > 0) {
+      // Pick the latest reading for the day (e.g. 16:00 over 08:00)
+      matchingToday.sort();
+      return stn.levels[matchingToday[matchingToday.length - 1]];
+    }
+
+    // Try previous days (up to 5) with the same prefix scan
     for (let i = 1; i <= 5; i++) {
       const probe = new Date(date);
       probe.setDate(probe.getDate() - i);
-      const key = probe.toISOString().substring(0, 10);
-      if (stn.levels[key] !== undefined) return stn.levels[key];
+      const probeKey = probe.toISOString().substring(0, 10);
+      if (stn.levels[probeKey] !== undefined) return stn.levels[probeKey];
+      const probeMatching = allKeys.filter((k) => k.startsWith(probeKey));
+      if (probeMatching.length > 0) {
+        probeMatching.sort();
+        return stn.levels[probeMatching[probeMatching.length - 1]];
+      }
     }
     return null;
   };
 
   const activeJams = useMemo(() => jams.filter((jam) => jam.status === 'active'), [jams]);
 
-  const stationRiskByName = useMemo(() => {
-    // Prefer the actual timeline date (which reflects user's slider position)
-    // and fall back to the observation date or today.
-    const baseDate = currentData?.date ?? currentDate ?? new Date().toISOString();
+  const stationRiskIndexes = useMemo(() => {
+    const baseDate = currentDate ?? new Date().toISOString();
     const targetDate = new Date(baseDate);
     if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
-    const prevDate = new Date(targetDate);
-    prevDate.setDate(prevDate.getDate() - 3);
-    const riskMap = new globalThis.Map<string, number>();
+    const byCoord = new globalThis.Map<string, number>();
+    const byStationName = new globalThis.Map<string, number>();
 
     for (const stn of stations) {
-      if (!stn.levels || Object.keys(stn.levels).length === 0 || !stn.coords) continue;
+      if (!stn.levels || Object.keys(stn.levels).length === 0) continue;
       const currentLevel = getLevelWithFallback(stn, targetDate);
-      const prevLevel = getLevelWithFallback(stn, prevDate);
-      if (currentLevel === null) continue;
+      const riskScore = waterRiskScoreFromLevels(currentLevel, stn.criticalLevel);
+      if (riskScore === 0 && currentLevel === null) continue;
 
-      let riskScore = 0;
-      const critical = Number(stn.criticalLevel);
-      if (Number.isFinite(critical) && critical > 0) {
-        const diff = critical - currentLevel;
-        // Cm remaining to the critical level:
-        //   ≤ 250 → red (danger)
-        //   ≤ 500 → yellow (warning)
-        //   > 500 → green (normal)
-        if (diff <= 250) riskScore = Math.max(riskScore, 3);
-        else if (diff <= 500) riskScore = Math.max(riskScore, 2);
+      if (stn.coords) {
+        const coordKey = `${stn.coords[0].toFixed(4)},${stn.coords[1].toFixed(4)}`;
+        byCoord.set(coordKey, Math.max(byCoord.get(coordKey) ?? 0, riskScore));
       }
-
-      if (prevLevel !== null) {
-        const rise = currentLevel - prevLevel;
-        if (rise >= WATER_RISE_ALERT_CM * 2.5) riskScore = Math.max(riskScore, 3);
-        else if (rise >= WATER_RISE_ALERT_CM) riskScore = Math.max(riskScore, 2);
-      }
-
-      riskScore = Math.max(riskScore, getJamRiskScore(stn.coords, activeJams));
-      riskMap.set(normalizeName(stn.name), riskScore);
+      byStationName.set(normalizeName(stn.name), Math.max(byStationName.get(normalizeName(stn.name)) ?? 0, riskScore));
     }
 
-    return riskMap;
-  }, [stations, currentData?.date, currentDate, activeJams]);
+    return { byCoord, byStationName };
+  }, [stations, currentDate]);
 
+  /** Цвет города на карте — только уровень воды (ОЯ/НЯ), без заторов и ледохода. */
   const settlementRiskByName = useMemo(() => {
+    const baseDate = currentDate ?? new Date().toISOString();
+    const targetDate = new Date(baseDate);
+    if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
     const riskMap = new globalThis.Map<string, number>();
+
     for (const settlement of SETTLEMENTS) {
-      const key = normalizeName(settlement.name);
-      const stationRisk = stationRiskByName.get(key) ?? 0;
-      const jamRisk = getJamRiskScore(settlement.coords, activeJams);
-      riskMap.set(key, Math.max(stationRisk, jamRisk));
+      const coordKey = `${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`;
+      const nameKey = normalizeName(settlement.name);
+      let score =
+        stationRiskIndexes.byStationName.get(nameKey) ??
+        stationRiskIndexes.byCoord.get(coordKey) ??
+        0;
+
+      if (score === 0) {
+        const stn =
+          stations.find((s) => normalizeName(s.name) === nameKey) ??
+          stations.find(
+            (s) =>
+              s.coords &&
+              Math.abs(s.coords[0] - settlement.coords[0]) < 0.02 &&
+              Math.abs(s.coords[1] - settlement.coords[1]) < 0.02,
+          );
+        if (stn) {
+          const level = getLevelWithFallback(stn, targetDate);
+          score = waterRiskScoreFromLevels(level, stn.criticalLevel);
+        }
+      }
+
+      riskMap.set(coordKey, score);
     }
     return riskMap;
-  }, [activeJams, stationRiskByName]);
+  }, [stations, currentDate, stationRiskIndexes]);
 
   useEffect(() => {
     const pushInAppNotification = (message: string, level: RiskLevel) => {
@@ -583,34 +739,50 @@ export default function MapEditor() {
     const toRiskLevel = (score: number): RiskLevel => {
       if (score >= 3) return 'danger';
       if (score >= 2) return 'warning';
+      if (score >= 1) return 'watch';
       return 'normal';
     };
 
     const previous = previousSettlementRiskRef.current;
     const escalated: { name: string; score: number }[] = [];
     for (const settlement of SETTLEMENTS) {
-      const key = normalizeName(settlement.name);
-      const currentScore = settlementRiskByName.get(key) ?? 0;
-      const previousScore = previous.get(key) ?? 0;
-      if (currentScore > previousScore && currentScore >= 2) {
+      const coordKey = `${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`;
+      const currentScore = settlementRiskByName.get(coordKey) ?? 0;
+      const previousScore = previous.get(coordKey) ?? 0;
+      if (currentScore > previousScore && currentScore >= 1) {
         escalated.push({ name: settlement.name, score: currentScore });
       }
     }
 
     if (escalated.length > 0) {
-      for (const item of escalated.slice(0, 3)) {
+      for (const item of escalated.slice(0, 5)) {
         const level = toRiskLevel(item.score);
         const levelLabel = RISK_LABELS[level];
         const message = `${item.name} (ожидается: ${levelLabel})`;
         pushInAppNotification(message, level);
 
-        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-          new Notification('Оповещение по ледоходу', { body: message });
+        if (
+          item.score >= 2 &&
+          typeof window !== 'undefined' &&
+          'Notification' in window &&
+          Notification.permission === 'granted'
+        ) {
+          try {
+            new Notification('Уровень воды', { body: message });
+          } catch {
+            // HTTP / небезопасный контекст — в ряде браузеров Notification недоступен
+          }
         }
       }
     }
 
-    if (typeof window !== 'undefined' && 'Notification' in window && !hasAskedNotificationPermissionRef.current && Notification.permission === 'default') {
+    if (
+      typeof window !== 'undefined' &&
+      window.isSecureContext &&
+      'Notification' in window &&
+      !hasAskedNotificationPermissionRef.current &&
+      Notification.permission === 'default'
+    ) {
       hasAskedNotificationPermissionRef.current = true;
       Notification.requestPermission().catch(() => {});
     }
@@ -649,7 +821,16 @@ export default function MapEditor() {
       
       // Fallback: Reverse geocoding for exact coordinate (fixes interior clicks on broken geometries)
       try {
-        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${e.lngLat.lat}&lon=${e.lngLat.lng}&zoom=10&accept-language=ru`);
+        if (!NOMINATIM_ENABLED || !EXTERNAL_NETWORK_ALLOWED) {
+          setSelectedDistrict({
+            name: 'Район не определен (внешний геокодинг отключен)',
+            lngLat: [e.lngLat.lng, e.lngLat.lat],
+          });
+          return;
+        }
+        const url = `${NOMINATIM_URL}?format=json&lat=${e.lngLat.lat}&lon=${e.lngLat.lng}&zoom=10&accept-language=ru`;
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`Reverse geocoding failed: ${res.status}`);
         const data = await res.json();
         if (data && data.address) {
           const districtName = data.address.county || data.address.state_district || data.address.city || data.address.town || 'Район не определен';
@@ -693,7 +874,7 @@ export default function MapEditor() {
   }, [setSelectedSettlement]);
 
   const visibleStations = useMemo(() => {
-    const baseDate = currentData?.date ?? currentDate ?? new Date().toISOString();
+    const baseDate = currentDate ?? new Date().toISOString();
     const targetDate = new Date(baseDate);
     if (Number.isNaN(targetDate.getTime())) targetDate.setTime(Date.now());
     return stations
@@ -709,11 +890,16 @@ export default function MapEditor() {
         return {
           stn,
           level,
-          riskLevel: riskFromScore(stationRiskByName.get(normalizeName(stn.name)) ?? 0),
+          riskLevel: riskFromScore(
+            Math.max(
+              stationRiskIndexes.byCoord.get(`${stn.coords[0].toFixed(4)},${stn.coords[1].toFixed(4)}`) ?? 0,
+              stationRiskIndexes.byStationName.get(normalizeName(stn.name)) ?? 0,
+            ),
+          ),
         };
       })
       .filter(Boolean) as { stn: any; level: number; riskLevel: RiskLevel }[];
-  }, [stations, viewState.zoom, mapBounds, currentData?.date, currentDate, stationRiskByName]);
+  }, [stations, viewState.zoom, mapBounds, currentDate, stationRiskIndexes]);
 
   const visibleSettlements = useMemo(() => {
     return SETTLEMENTS
@@ -725,7 +911,7 @@ export default function MapEditor() {
       })
       .map(settlement => ({
         settlement,
-        riskLevel: riskFromScore(settlementRiskByName.get(normalizeName(settlement.name)) ?? 0),
+        riskLevel: riskFromScore(settlementRiskByName.get(`${settlement.coords[0].toFixed(4)},${settlement.coords[1].toFixed(4)}`) ?? 0),
       }));
   }, [viewState.zoom, mapBounds, settlementRiskByName]);
 
@@ -818,7 +1004,8 @@ export default function MapEditor() {
         <Tooltip text="Спутниковые снимки ESRI" position="bottom">
           <button
             onClick={() => setMapType('satellite')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'satellite' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            disabled={!availableMapTypes.has('satellite')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded disabled:opacity-50 disabled:cursor-not-allowed ${mapType === 'satellite' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             Спутник
           </button>
@@ -827,7 +1014,8 @@ export default function MapEditor() {
         <Tooltip text="Векторная карта OpenStreetMap" position="bottom">
           <button
             onClick={() => setMapType('vector')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'vector' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            disabled={!availableMapTypes.has('vector')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded disabled:opacity-50 disabled:cursor-not-allowed ${mapType === 'vector' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             Вектор
           </button>
@@ -835,7 +1023,8 @@ export default function MapEditor() {
         <Tooltip text="Карта речных бассейнов" position="bottom">
           <button
             onClick={() => setMapType('basin')}
-            className={`px-3 py-1.5 text-xs font-semibold rounded ${mapType === 'basin' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+            disabled={!availableMapTypes.has('basin')}
+            className={`px-3 py-1.5 text-xs font-semibold rounded disabled:opacity-50 disabled:cursor-not-allowed ${mapType === 'basin' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
           >
             Бассейны
           </button>
@@ -853,8 +1042,12 @@ export default function MapEditor() {
       <Map
         ref={mapRef}
         initialViewState={viewState}
+        transformRequest={mapTransformRequest}
+        onLoad={() => {
+          window.requestAnimationFrame(() => updateBounds());
+        }}
         onMoveEnd={onMoveEnd}
-        mapStyle={MAP_STYLES[mapType]}
+        mapStyle={resolvedMapStyle}
         interactiveLayerIds={['river-line', 'yakutia-district-fill']}
         cursor={cursorType}
         onClick={onMapClick}
@@ -862,7 +1055,7 @@ export default function MapEditor() {
         onMouseLeave={() => setHoverInfo(null)}
         canvasContextAttributes={{ preserveDrawingBuffer: true }}
       >
-        <Source id="yakutia-bounds" type="geojson" data="/yakutia_boundaries.json">
+        <Source id="yakutia-bounds" type="geojson" data={publicAssetUrl('yakutia_boundaries.json')}>
           <Layer
             id="yakutia-district-fill"
             type="fill"
@@ -901,6 +1094,18 @@ export default function MapEditor() {
           />
         </Source>
 
+        <Source id="river-baseline" type="geojson" data={riverBaselineGeoJSON}>
+          <Layer
+            id="river-baseline-line"
+            type="line"
+            paint={{
+              'line-color': '#94a3b8',
+              'line-width': 2,
+              'line-opacity': 0.65,
+            }}
+          />
+        </Source>
+
         <Source id="river-data" type="geojson" data={geojsonSource}>
           <Layer
             id="river-line-glow"
@@ -916,9 +1121,19 @@ export default function MapEditor() {
             id="river-line-casing"
             type="line"
             paint={{
-              'line-color': '#0f172a',
-              'line-width': 8,
-              'line-opacity': 0.6
+              'line-color': [
+                'case',
+                ['==', ['get', 'status'], 'ice'],
+                '#64748b',
+                '#0f172a',
+              ],
+              'line-width': [
+                'case',
+                ['==', ['get', 'status'], 'ice'],
+                9,
+                8,
+              ],
+              'line-opacity': 0.75,
             }}
           />
           <Layer
@@ -926,7 +1141,12 @@ export default function MapEditor() {
             type="line"
             paint={{
               'line-color': ['get', 'color'],
-              'line-width': 4,
+              'line-width': [
+                'case',
+                ['==', ['get', 'status'], 'ice'],
+                5,
+                4,
+              ],
             }}
           />
         </Source>
@@ -962,6 +1182,7 @@ export default function MapEditor() {
 
         {viewState.zoom >= 5.8 && phenomenonMarkers.map((marker) => {
           const isCurrent = marker.day === currentDay;
+          const info = PHENOMENON_INFO[marker.kind];
           const Icon =
             marker.kind === 'water'
               ? Droplets
@@ -984,18 +1205,40 @@ export default function MapEditor() {
             marker.kind === 'jam' ? 'animate-ping' : marker.kind === 'freeze' ? 'animate-pulse' : 'animate-bounce';
           return (
             <Marker key={marker.id} longitude={marker.coords[0]} latitude={marker.coords[1]} anchor="center">
-              <div className="pointer-events-none">
+              <button
+                type="button"
+                title={`${info.title}: ${info.description}`}
+                onMouseEnter={() => setActivePhenomenon({
+                  id: marker.id,
+                  coords: marker.coords,
+                  kind: marker.kind,
+                  isCurrent,
+                })}
+                onMouseLeave={() => {
+                  setActivePhenomenon((prev) => (prev?.id === marker.id ? null : prev));
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActivePhenomenon({
+                    id: marker.id,
+                    coords: marker.coords,
+                    kind: marker.kind,
+                    isCurrent,
+                  });
+                }}
+                className="pointer-events-auto cursor-pointer"
+              >
                 <div className={`rounded-full border border-white/80 shadow-md ${toneClass} ${animationClass} ${
                   isCurrent ? 'w-5 h-5' : 'w-4 h-4 opacity-90'
                 } flex items-center justify-center`}>
                   <Icon className={isCurrent ? 'w-3 h-3' : 'w-2.5 h-2.5'} />
                 </div>
-              </div>
+              </button>
             </Marker>
           );
         })}
 
-        {currentData && (
+        {hasAnyObservations && currentData && (
           <>
             <Marker longitude={currentData.upperEdgeCoords[0]} latitude={currentData.upperEdgeCoords[1]} anchor="bottom">
               {viewState.zoom >= 6 ? (
@@ -1071,12 +1314,12 @@ export default function MapEditor() {
         )}
 
         {/* Section Speeds Tags on Map */}
-        {viewState.zoom >= 5.5 && sectionSpeeds.map((section: any, i: number) => {
+        {viewState.zoom >= 6.5 && sectionSpeeds.map((section: any, i: number) => {
           if (!section.midCoords) return null;
           return (
             <Marker key={`speed-${i}`} longitude={section.midCoords[0]} latitude={section.midCoords[1]} anchor="center">
-              <div className="bg-white/90 backdrop-blur-sm border border-blue-200 px-2 py-1 rounded-lg shadow-sm text-[10px] font-bold text-blue-800 hover:scale-110 hover:z-50 cursor-pointer transition-transform whitespace-nowrap flex items-center gap-1 group">
-                <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+              <div className="bg-white/95 border border-blue-200 px-2 py-1 rounded-lg shadow-sm text-[10px] font-bold text-blue-800 hover:scale-110 hover:z-50 cursor-pointer transition-transform whitespace-nowrap flex items-center gap-1 group">
+                <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                 {section.speed.toFixed(1)} км/сут
                 <span className="text-[8px] text-blue-400 font-medium">({(section.speed / 24).toFixed(1)} км/ч)</span>
                 
@@ -1145,7 +1388,43 @@ export default function MapEditor() {
             </div>
           </Popup>
         )}
+
+        {activePhenomenon && (
+          <Popup
+            longitude={activePhenomenon.coords[0]}
+            latitude={activePhenomenon.coords[1]}
+            anchor="bottom"
+            onClose={() => setActivePhenomenon(null)}
+            closeOnClick={false}
+            className="z-50"
+          >
+            <div className="max-w-[220px] px-1 py-0.5">
+              <div className="text-xs font-bold text-slate-800">
+                {PHENOMENON_INFO[activePhenomenon.kind].title}
+              </div>
+              <div className="text-[11px] text-slate-600 mt-0.5">
+                {PHENOMENON_INFO[activePhenomenon.kind].description}
+              </div>
+              {activePhenomenon.isCurrent && (
+                <div className="text-[10px] text-blue-700 font-semibold mt-1">
+                  Текущее состояние на выбранную дату
+                </div>
+              )}
+            </div>
+          </Popup>
+        )}
       </Map>
+
+      {currentData && currentData.exact === false && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-md pointer-events-none px-3 py-2 rounded-lg border border-violet-200 bg-violet-50/95 text-violet-950 text-xs font-medium shadow-md text-center">
+          Кромки оценены по соседним сводкам — в файле за этот день нет координат двух кромок.
+        </div>
+      )}
+      {hasAnyObservations && !currentData && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-20 max-w-md pointer-events-none px-3 py-2 rounded-lg border border-amber-200 bg-amber-50/95 text-amber-950 text-xs font-medium shadow-md text-center">
+          На {format(new Date(currentDate), 'd MMMM yyyy', { locale: ru })} нет сводки по кромкам льда — на карте только русло. Выберите день с данными ледохода (в списке «Дни в базе»).
+        </div>
+      )}
 
       {hoverInfo && hoverInfo.feature?.properties?.status && (
         <div 
@@ -1158,8 +1437,13 @@ export default function MapEditor() {
           </div>
           <div>
             Статус: <span className="font-semibold text-blue-300">
-              {hoverInfo.feature.properties.status === 'water' ? 'Чистая вода' : 
-               hoverInfo.feature.properties.status === 'drift' ? 'Ледоход' : 'Ледостав'}
+              {hoverInfo.feature.properties.status === 'water'
+                ? 'Чистая вода'
+                : hoverInfo.feature.properties.status === 'drift'
+                  ? 'Ледоход'
+                  : hoverInfo.feature.properties.status === 'no-data'
+                    ? 'Нет данных'
+                    : 'Ледостав'}
             </span>
           </div>
         </div>
@@ -1183,24 +1467,29 @@ export default function MapEditor() {
         </div>
       </div>
 
-      {riskNotifications.length > 0 && (
-        <div className="absolute top-16 left-3 z-[130] flex flex-col gap-2 pointer-events-none">
-          {riskNotifications.map((n) => (
-            <div
-              key={n.id}
-              className={`text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[260px] ${
-                n.level === 'danger'
-                  ? 'bg-red-600/95 text-white border-red-200/70'
-                  : n.level === 'warning'
-                    ? 'bg-yellow-300/95 text-yellow-950 border-yellow-100'
-                    : 'bg-slate-900/90 text-white border-white/20'
-              }`}
-            >
-              {n.message}
-            </div>
-          ))}
-        </div>
-      )}
+      {riskNotifications.length > 0 &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div className="fixed top-16 left-4 z-[2147483000] flex flex-col gap-2 max-w-[min(320px,calc(100vw-2rem))] pointer-events-none print-hide">
+            {riskNotifications.map((n) => (
+              <div
+                key={n.id}
+                className={`pointer-events-auto text-xs px-3 py-2 rounded-lg shadow-xl border max-w-[min(320px,calc(100vw-2rem))] ${
+                  n.level === 'danger'
+                    ? 'bg-red-600/95 text-white border-red-200/70'
+                    : n.level === 'warning'
+                      ? 'bg-yellow-300/95 text-yellow-950 border-yellow-100'
+                      : n.level === 'watch'
+                        ? 'bg-amber-100/95 text-amber-950 border-amber-200'
+                        : 'bg-slate-900/90 text-white border-white/20'
+                }`}
+              >
+                {n.message}
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
 
       <style>{`
         .maplibregl-ctrl-bottom-right {

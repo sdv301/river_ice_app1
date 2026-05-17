@@ -67,11 +67,10 @@ if (!self.define) {
     });
   };
 }
-define(['./workbox-ca84f546'], (function (workbox) { 'use strict';
+define(['./workbox-afac4cd2'], (function (workbox) { 'use strict';
 
   self.skipWaiting();
   workbox.clientsClaim();
-
   /**
    * The precacheAndRoute() method efficiently caches and responds to
    * requests for URLs in the manifest.
@@ -82,14 +81,14 @@ define(['./workbox-ca84f546'], (function (workbox) { 'use strict';
     "revision": "3ca0b8505b4bec776b69afdba2768812"
   }, {
     "url": "index.html",
-    "revision": "0.q0thckufpno"
+    "revision": "0.vq3cudd8tsk"
   }], {});
   workbox.cleanupOutdatedCaches();
   workbox.registerRoute(new workbox.NavigationRoute(workbox.createHandlerBoundToURL("index.html"), {
     allowlist: [/^\/$/]
   }));
-  workbox.registerRoute(/^https:\/\/server\.arcgisonline\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "esri-satellite-tiles",
+  workbox.registerRoute(/^https?:\/\/[^/]+\/(tiles|terrain|fonts)\//i, new workbox.CacheFirst({
+    "cacheName": "local-map-assets",
     plugins: [new workbox.ExpirationPlugin({
       maxEntries: 1000,
       maxAgeSeconds: 2592000
@@ -97,20 +96,11 @@ define(['./workbox-ca84f546'], (function (workbox) { 'use strict';
       statuses: [0, 200]
     })]
   }), 'GET');
-  workbox.registerRoute(/^https:\/\/[a-d]?\.basemaps\.cartocdn\.com\/.*/i, new workbox.CacheFirst({
-    "cacheName": "carto-vector-tiles",
+  workbox.registerRoute(/^https?:\/\/[^/]+\/api\/(?!map\/fetch).*/i, new workbox.CacheFirst({
+    "cacheName": "internal-api-cache",
     plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 1000,
-      maxAgeSeconds: 2592000
-    }), new workbox.CacheableResponsePlugin({
-      statuses: [0, 200]
-    })]
-  }), 'GET');
-  workbox.registerRoute(/^https:\/\/s3\.amazonaws\.com\/elevation-tiles-prod\/.*/i, new workbox.CacheFirst({
-    "cacheName": "mapzen-terrain-tiles",
-    plugins: [new workbox.ExpirationPlugin({
-      maxEntries: 500,
-      maxAgeSeconds: 2592000
+      maxEntries: 200,
+      maxAgeSeconds: 1800
     }), new workbox.CacheableResponsePlugin({
       statuses: [0, 200]
     })]

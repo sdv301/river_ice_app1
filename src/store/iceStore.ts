@@ -1,26 +1,31 @@
 import { create } from 'zustand';
 import type { IceObservation, IceJam } from '../types';
-import { interpolateAlongRiver, snapToRiver, getRiverDistance } from '../utils/mapUtils';
+import { interpolateAlongRiver, snapToRiver, getRiverDistance, getIceDriftDistanceKm, normalizeEdgeOrder } from '../utils/mapUtils';
+import { iceBulletinDays, interpolateObservationForTime } from '../utils/iceObservationResolve';
+import { utcCalendarDay } from '../utils/calendarDay';
 import { nearestPointOnLine, point } from '@turf/turf';
 import { lenaRiverFeature } from '../utils/riverData';
 import { fetchAllIceData } from '../utils/yandexDisk';
+import { DATA_SOURCE_MODE } from '../config/runtimeConfig';
+import { getServerObservationsCache, refreshDataFromServer, fetchDataStatus, initDataFromServer } from '../utils/serverData';
 
 export const AUTO_SYNC_INTERVAL_MS = 5 * 60 * 1000;
 // Absolute safety cap for clearly broken calculations (unit/parse issues).
 const MAX_REASONABLE_ICE_SPEED_KM_PER_DAY = 250;
+const OBS_DB_STORAGE_KEY = 'river_ice_observations_db_v1';
+const ICE_SYNC_META_STORAGE_KEY = 'river_ice_sync_meta_v1';
 
 /**
  * Returns the most natural "current" date for the given monitoring year:
  * - if today is inside the ice-drift season (April – June), use today;
  * - otherwise, use May 1 of that year (the conventional start of monitoring).
  */
-export function getDefaultCurrentDate(year: number): string {
-  const today = new Date();
-  const month = today.getMonth(); // 0-based: 3 = April, 4 = May, 5 = June
-  if (today.getFullYear() === year && month >= 3 && month <= 5) {
-    return today.toISOString();
+/** Начальная дата шкалы: последний день из данных, не «сегодня», если его нет в базе. */
+export function getDefaultCurrentDate(year: number, dataDays?: string[]): string {
+  if (dataDays?.length) {
+    return `${dataDays[dataDays.length - 1]}T12:00:00.000Z`;
   }
-  return new Date(`${year}-05-01T12:00:00Z`).toISOString();
+  return new Date(`${year}-05-01T12:00:00.000Z`).toISOString();
 }
 
 export const ARCHIVE_2025: IceObservation[] = [
@@ -74,6 +79,135 @@ export const ARCHIVE_2025: IceObservation[] = [
   }
 ];
 
+function readObservationDbFromStorage(): IceObservation[] {
+  if (typeof window === 'undefined' || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(OBS_DB_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed?.observations)) return [];
+    return parsed.observations as IceObservation[];
+  } catch (e) {
+    console.warn('Не удалось прочитать локальную БД ледовых наблюдений:', e);
+    return [];
+  }
+}
+
+function writeObservationDbToStorage(observations: IceObservation[]) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(
+      OBS_DB_STORAGE_KEY,
+      JSON.stringify({ savedAt: new Date().toISOString(), observations })
+    );
+  } catch (e) {
+    console.warn('Не удалось сохранить локальную БД ледовых наблюдений:', e);
+  }
+}
+
+function readIceSyncMetaFromStorage(): {
+  lastSyncTime: string | null;
+  lastDiskModified: string | null;
+  syncError: string | null;
+} {
+  if (typeof window === 'undefined' || !window.localStorage) {
+    return { lastSyncTime: null, lastDiskModified: null, syncError: null };
+  }
+  try {
+    const raw = window.localStorage.getItem(ICE_SYNC_META_STORAGE_KEY);
+    if (!raw) return { lastSyncTime: null, lastDiskModified: null, syncError: null };
+    const parsed = JSON.parse(raw);
+    return {
+      lastSyncTime: parsed?.lastSyncTime ?? null,
+      lastDiskModified: parsed?.lastDiskModified ?? null,
+      syncError: parsed?.syncError ?? null,
+    };
+  } catch {
+    return { lastSyncTime: null, lastDiskModified: null, syncError: null };
+  }
+}
+
+function writeIceSyncMetaToStorage(meta: {
+  lastSyncTime: string | null;
+  lastDiskModified: string | null;
+  syncError: string | null;
+}) {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(ICE_SYNC_META_STORAGE_KEY, JSON.stringify(meta));
+  } catch {
+    // best effort only
+  }
+}
+
+function normalizeIncomingObservation(obs: {
+  date: string;
+  upperEdgeCoords: [number, number];
+  lowerEdgeCoords: [number, number];
+  locationName?: string;
+  notes?: string;
+  phenomenonOnly?: boolean;
+}): IceObservation | null {
+  if (obs.phenomenonOnly) return null;
+  const ordered = normalizeEdgeOrder({
+    upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+    lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+  });
+  return {
+    id: `obs-${Math.random().toString(36).slice(2, 11)}`,
+    date: obs.date,
+    upperEdgeCoords: ordered.upperEdgeCoords,
+    lowerEdgeCoords: ordered.lowerEdgeCoords,
+    locationName: obs.locationName ?? '',
+    notes: obs.notes,
+  };
+}
+
+function normalizeIncomingBatch(
+  batch: Parameters<typeof normalizeIncomingObservation>[0][],
+): IceObservation[] {
+  return batch.map(normalizeIncomingObservation).filter((o): o is IceObservation => o !== null);
+}
+
+function observationFingerprint(obs: {
+  date: string;
+  upperEdgeCoords: [number, number];
+  lowerEdgeCoords: [number, number];
+  locationName?: string;
+}): string {
+  const day = new Date(obs.date).toISOString().slice(0, 10);
+  const round = (n: number) => n.toFixed(5);
+  const loc = (obs.locationName ?? '').toLowerCase().trim();
+  return [
+    day,
+    `${round(obs.upperEdgeCoords[0])},${round(obs.upperEdgeCoords[1])}`,
+    `${round(obs.lowerEdgeCoords[0])},${round(obs.lowerEdgeCoords[1])}`,
+    loc,
+  ].join('|');
+}
+
+function mergeObservationDb(
+  base: IceObservation[],
+  incoming: IceObservation[],
+): { merged: IceObservation[]; newCount: number } {
+  const seen = new Set(base.map((obs) => observationFingerprint(obs)));
+  const appended: IceObservation[] = [];
+  for (const obs of incoming) {
+    const key = observationFingerprint(obs);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    appended.push(obs);
+  }
+  const merged = [...base, ...appended].sort(
+    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
+  );
+  return { merged, newCount: appended.length };
+}
+
+function observationsForYear(observations: IceObservation[], year: number): IceObservation[] {
+  return observations.filter((obs) => new Date(obs.date).getUTCFullYear() === year);
+}
+
 interface IceStore {
   observations: IceObservation[];
   currentDate: string;
@@ -85,6 +219,7 @@ interface IceStore {
   syncFileCount: number;
   lastDiskModified: string | null;
   loadYearData: (year: number) => void;
+  setObservations: (obs: IceObservation[]) => void;
   setCurrentDate: (date: string) => void;
   setDraftJamCoords: (coords: [number, number] | null) => void;
   addObservation: (obs: Omit<IceObservation, 'id'>) => void;
@@ -92,7 +227,9 @@ interface IceStore {
   resolveJam: (id: string) => void;
   removeJam: (id: string) => void;
   fetchFromYandexDisk: () => Promise<void>;
+  refreshFromServer: () => Promise<void>;
   checkYandexForUpdates: () => Promise<boolean>;
+  serverStatus: { observationsCount: number; filesOnDisk: number } | null;
   getCurrentObservationData: () => any;
   getDailySpeed: () => any;
   getSectionSpeeds: () => any[];
@@ -111,15 +248,14 @@ interface IceStore {
 }
 
 export const useIceStore = create<IceStore>((set, get) => ({
+  ...readIceSyncMetaFromStorage(),
   observations: [],
   currentDate: getDefaultCurrentDate(2026),
   jams: [],
   draftJamCoords: null,
   isLoading: false,
-  lastSyncTime: null,
-  syncError: null,
   syncFileCount: 0,
-  lastDiskModified: null,
+  serverStatus: null,
 
   setCurrentDate: (date: string) => set({ currentDate: date }),
   
@@ -133,111 +269,221 @@ export const useIceStore = create<IceStore>((set, get) => ({
           upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
           lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
         })),
-        currentDate: ARCHIVE_2025[0].date,
-        jams: [], // Clear or load 2025 jams
+        currentDate: `${year}-05-01T12:00:00.000Z`,
+        jams: [],
       });
     } else {
+      const source =
+        DATA_SOURCE_MODE === 'yandex'
+          ? readObservationDbFromStorage()
+          : getServerObservationsCache();
+      const yearObs = observationsForYear(source, year).map((obs) =>
+          normalizeEdgeOrder({
+            ...obs,
+            upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
+            lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
+          }),
+        )
+        .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      const bulletinDays = iceBulletinDays(yearObs);
+      const initialDate = getDefaultCurrentDate(year, bulletinDays);
       set({
-        observations: [],
-        currentDate: getDefaultCurrentDate(year),
+        observations: yearObs,
+        currentDate: initialDate,
         jams: [],
       });
     }
   },
 
+  setObservations: (obs: IceObservation[]) => {
+    const snapped = obs.map((o) => {
+      const ordered = normalizeEdgeOrder({
+        ...o,
+        upperEdgeCoords: snapToRiver(o.upperEdgeCoords),
+        lowerEdgeCoords: snapToRiver(o.lowerEdgeCoords),
+      });
+      return ordered;
+    });
+    set({ observations: snapped });
+  },
+
+  refreshFromServer: async () => {
+    if (DATA_SOURCE_MODE === 'none') return;
+    set({ isLoading: true, syncError: null });
+    try {
+      const status = await refreshDataFromServer();
+      const nextSyncTime = status?.lastSyncTime ?? new Date().toISOString();
+      set({
+        isLoading: false,
+        lastSyncTime: nextSyncTime,
+        syncFileCount: status?.lastDownloadedCount ?? 0,
+        syncError: status?.lastSyncError ?? (status?.errors?.length ? status.errors.slice(0, 3).join('; ') : null),
+        serverStatus: status
+          ? { observationsCount: status.observationsCount, filesOnDisk: status.filesOnDisk }
+          : null,
+      });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: nextSyncTime,
+        lastDiskModified: get().lastDiskModified,
+        syncError: get().syncError,
+      });
+    } catch (e: any) {
+      const syncError = e.message || 'Ошибка обновления с сервера';
+      set({ isLoading: false, syncError });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: get().lastSyncTime,
+        lastDiskModified: get().lastDiskModified,
+        syncError,
+      });
+    }
+  },
+
   fetchFromYandexDisk: async () => {
+    if (DATA_SOURCE_MODE === 'none') {
+      set({
+        isLoading: false,
+        lastSyncTime: new Date().toISOString(),
+        syncError: 'Синхронизация отключена политикой безопасности',
+      });
+      return;
+    }
+    if (DATA_SOURCE_MODE !== 'yandex') {
+      await get().refreshFromServer();
+      return;
+    }
     set({ isLoading: true, syncError: null });
     try {
       const result = await fetchAllIceData();
-      
-      if (result.observations.length > 0) {
-        const newObs: IceObservation[] = result.observations.map((obs, idx) => ({
-          id: `yd-${Date.now()}-${idx}`,
-          date: obs.date,
-          upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
-          lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
-          locationName: obs.locationName,
-          notes: obs.notes,
-        }));
+      const incomingObs = normalizeIncomingBatch(result.observations);
+      const dbBefore = readObservationDbFromStorage().filter((o) => !o.phenomenonOnly);
+      const { merged, newCount } = mergeObservationDb(dbBefore, incomingObs);
+      writeObservationDbToStorage(merged);
 
-        set((state) => ({
-          observations: newObs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
-          isLoading: false,
-          lastSyncTime: new Date().toISOString(),
-          syncFileCount: result.fileCount,
-          lastDiskModified: result.latestModified,
-          syncError: result.errors.length > 0 ? result.errors.join('; ') : null,
-        }));
+      const activeYear = new Date(get().currentDate).getUTCFullYear();
+      const activeYearObs = observationsForYear(merged, activeYear);
+      const nextSyncTime = new Date().toISOString();
+      const syncError = result.errors.length > 0
+        ? result.errors.join('; ')
+        : result.hasNewFiles && incomingObs.length === 0
+          ? 'Файлы не содержат корректных данных'
+          : null;
 
-        // Auto-set current date to first observation
-        if (newObs.length > 0) {
-          const sorted = newObs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-          set({ currentDate: sorted[0].date });
-        }
-      } else {
-        set({
-          isLoading: false,
-          lastSyncTime: new Date().toISOString(),
-          syncFileCount: result.fileCount,
-          lastDiskModified: result.latestModified,
-          syncError: result.errors.length > 0 
-            ? result.errors.join('; ') 
-            : result.hasNewFiles
-              ? 'Файлы не содержат корректных данных'
-              : 'Новых файлов на Яндекс.Диске нет',
-        });
+      set({
+        observations: activeYearObs,
+        isLoading: false,
+        lastSyncTime: nextSyncTime,
+        syncFileCount: result.fileCount,
+        lastDiskModified: result.latestModified,
+        syncError,
+      });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: nextSyncTime,
+        lastDiskModified: result.latestModified,
+        syncError,
+      });
+
+      if (newCount > 0 && activeYearObs.length > 0 && activeYear === 2026) {
+        const sorted = [...activeYearObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        set({ currentDate: sorted[0].date });
       }
     } catch (e: any) {
+      const nextSyncTime = new Date().toISOString();
+      const syncError = e.message || 'Ошибка при загрузке данных';
       set({
         isLoading: false,
-        syncError: e.message || 'Ошибка при загрузке данных',
+        lastSyncTime: nextSyncTime,
+        syncError,
+      });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: nextSyncTime,
+        lastDiskModified: get().lastDiskModified,
+        syncError,
       });
     }
   },
 
   checkYandexForUpdates: async () => {
+    if (DATA_SOURCE_MODE === 'none') {
+      set({ isLoading: false, syncError: null });
+      return false;
+    }
+    if (DATA_SOURCE_MODE !== 'yandex') {
+      const before = get().serverStatus?.observationsCount ?? 0;
+      set({ isLoading: true });
+      const status = await fetchDataStatus();
+      await initDataFromServer();
+      const after = get().observations.length;
+      set({
+        isLoading: false,
+        lastSyncTime: status?.lastSyncTime ?? new Date().toISOString(),
+        serverStatus: status
+          ? { observationsCount: status.observationsCount, filesOnDisk: status.filesOnDisk }
+          : null,
+        syncError: status?.lastSyncError ?? null,
+      });
+      return after !== before || (status?.lastDownloadedCount ?? 0) > 0;
+    }
     const { lastDiskModified } = get();
     set({ isLoading: true, syncError: null });
     try {
       const result = await fetchAllIceData({ onlyNewerThan: lastDiskModified });
       if (!result.hasNewFiles) {
+        const nextSyncTime = new Date().toISOString();
         set({
           isLoading: false,
-          lastSyncTime: new Date().toISOString(),
+          lastSyncTime: nextSyncTime,
           syncFileCount: 0,
           syncError: null,
           lastDiskModified: result.latestModified ?? lastDiskModified,
         });
+        writeIceSyncMetaToStorage({
+          lastSyncTime: nextSyncTime,
+          lastDiskModified: result.latestModified ?? lastDiskModified,
+          syncError: null,
+        });
         return false;
       }
 
-      const newObs: IceObservation[] = result.observations.map((obs, idx) => ({
-        id: `yd-${Date.now()}-${idx}`,
-        date: obs.date,
-        upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
-        lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
-        locationName: obs.locationName,
-        notes: obs.notes,
-      }));
+      const incomingObs = normalizeIncomingBatch(result.observations);
+      const dbBefore = readObservationDbFromStorage();
+      const { merged } = mergeObservationDb(dbBefore, incomingObs);
+      writeObservationDbToStorage(merged);
+      const activeYear = new Date(get().currentDate).getUTCFullYear();
+      const activeYearObs = observationsForYear(merged, activeYear);
+      const nextSyncTime = new Date().toISOString();
+      const syncError = result.errors.length > 0 ? result.errors.join('; ') : null;
 
       set({
-        observations: newObs.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()),
+        observations: activeYearObs,
         isLoading: false,
-        lastSyncTime: new Date().toISOString(),
+        lastSyncTime: nextSyncTime,
         syncFileCount: result.fileCount,
-        syncError: result.errors.length > 0 ? result.errors.join('; ') : null,
+        syncError,
         lastDiskModified: result.latestModified ?? lastDiskModified,
       });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: nextSyncTime,
+        lastDiskModified: result.latestModified ?? lastDiskModified,
+        syncError,
+      });
 
-      if (newObs.length > 0) {
-        const sorted = [...newObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+      if (incomingObs.length > 0 && activeYearObs.length > 0 && activeYear === 2026) {
+        const sorted = [...activeYearObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         set({ currentDate: sorted[0].date });
       }
       return true;
     } catch (e: any) {
+      const nextSyncTime = new Date().toISOString();
+      const syncError = e.message || 'Ошибка авто-проверки Яндекс.Диска';
       set({
         isLoading: false,
-        syncError: e.message || 'Ошибка авто-проверки Яндекс.Диска',
+        lastSyncTime: nextSyncTime,
+        syncError,
+      });
+      writeIceSyncMetaToStorage({
+        lastSyncTime: nextSyncTime,
+        lastDiskModified: get().lastDiskModified,
+        syncError,
       });
       return false;
     }
@@ -250,8 +496,14 @@ export const useIceStore = create<IceStore>((set, get) => ({
       upperEdgeCoords: snapToRiver(obs.upperEdgeCoords),
       lowerEdgeCoords: snapToRiver(obs.lowerEdgeCoords),
     };
+    const mergedStateObs = [...state.observations, newObs].sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    const dbBefore = readObservationDbFromStorage();
+    const { merged } = mergeObservationDb(dbBefore, [newObs]);
+    writeObservationDbToStorage(merged);
     return {
-      observations: [...state.observations, newObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+      observations: mergedStateObs
     };
   }),
 
@@ -278,49 +530,14 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
   getCurrentObservationData() {
     const { observations, currentDate } = get();
-    if (observations.length === 0) return null;
-    
-    // Sort array just in case
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
-    const targetTime = new Date(currentDate).getTime();
-    
-    // Find before and after
-    let before = sorted[0];
-    let after = sorted[sorted.length - 1];
-
-    if (targetTime <= new Date(before.date).getTime()) return { ...before, exact: true };
-    if (targetTime >= new Date(after.date).getTime()) return { ...after, exact: true };
-
-    for (let i = 0; i < sorted.length - 1; i++) {
-        const time1 = new Date(sorted[i].date).getTime();
-        const time2 = new Date(sorted[i+1].date).getTime();
-        
-        if (targetTime >= time1 && targetTime <= time2) {
-            before = sorted[i];
-            after = sorted[i+1];
-            break;
-        }
-    }
-
-    // Interpolate distance along the river between before and after
-    const time1 = new Date(before.date).getTime();
-    const time2 = new Date(after.date).getTime();
-    const progress = (targetTime - time1) / (time2 - time1);
-
-    return {
-        date: currentDate,
-        // Using turf along & length for exact river contour instead of straight lines
-        upperEdgeCoords: interpolateAlongRiver(before.upperEdgeCoords, after.upperEdgeCoords, progress),
-        lowerEdgeCoords: interpolateAlongRiver(before.lowerEdgeCoords, after.lowerEdgeCoords, progress),
-        exact: false,
-    };
+    return interpolateObservationForTime(observations, currentDate);
   },
 
   getDailySpeed() {
     const { observations, currentDate } = get();
-    if (observations.length < 2) return null;
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const edgeObs = observations.filter((o) => !o.phenomenonOnly);
+    if (edgeObs.length < 2) return null;
+    const sorted = [...edgeObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const targetTime = new Date(currentDate).getTime();
 
     let before = sorted[0];
@@ -347,9 +564,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
     const daysDiff = (t2 - t1) / (1000 * 60 * 60 * 24);
     
     if (daysDiff === 0) return null;
-    const distanceKm = getRiverDistance(before.upperEdgeCoords, after.upperEdgeCoords);
+    const driftKm = getIceDriftDistanceKm(before, after);
+    if (driftKm === null) return null;
     return {
-      speed: distanceKm / daysDiff,
+      speed: driftKm / daysDiff,
       startLoc: before.locationName || 'Неизвестно',
       endLoc: after.locationName || 'Неизвестно'
     };
@@ -357,9 +575,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
   getSectionSpeeds() {
     const { observations } = get();
-    if (observations.length < 2) return [];
+    const edgeObs = observations.filter((o) => !o.phenomenonOnly);
+    if (edgeObs.length < 2) return [];
     
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...edgeObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     const speeds = [];
     for (let i = 0; i < sorted.length - 1; i++) {
       const obs1 = sorted[i];
@@ -370,11 +589,12 @@ export const useIceStore = create<IceStore>((set, get) => ({
       const daysDiff = (t2 - t1) / (1000 * 60 * 60 * 24);
       
       if (daysDiff > 0) {
-        const distanceKm = getRiverDistance(obs1.upperEdgeCoords, obs2.upperEdgeCoords);
+        const driftKm = getIceDriftDistanceKm(obs1, obs2);
+        if (driftKm === null) continue;
         speeds.push({
           startLoc: obs1.locationName || `Участок ${i+1}`,
           endLoc: obs2.locationName || `Участок ${i+2}`,
-          speed: distanceKm / daysDiff,
+          speed: driftKm / daysDiff,
           startDate: obs1.date,
           endDate: obs2.date,
           midCoords: interpolateAlongRiver(obs1.upperEdgeCoords, obs2.upperEdgeCoords, 0.5)
@@ -386,9 +606,10 @@ export const useIceStore = create<IceStore>((set, get) => ({
 
   getCustomSectionSpeed(start, end) {
     const { observations } = get();
-    if (!start || !end || observations.length < 2) return null;
+    const edgeObs = observations.filter((o) => !o.phenomenonOnly);
+    if (!start || !end || edgeObs.length < 2) return null;
 
-    const sorted = [...observations].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    const sorted = [...edgeObs].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
     const getRiverLocationKm = (coords: [number, number]) => {
       const snapped = nearestPointOnLine(lenaRiverFeature, point(coords), { units: 'kilometers' });

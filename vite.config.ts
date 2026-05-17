@@ -6,6 +6,26 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
+  const tileCacheHosts = (env.VITE_TILE_CACHE_HOSTS ?? '')
+    .split(',')
+    .map((host) => host.trim())
+    .filter(Boolean);
+
+  const appBuildId = String(Date.now());
+
+  const externalRuntimeCaching = tileCacheHosts.map((host) => ({
+    urlPattern: new RegExp(`^https:\\/\\/${host.replace(/\./g, '\\.')}\\/.*`, 'i'),
+    handler: 'CacheFirst' as const,
+    options: {
+      cacheName: `tiles-${host.replace(/[^a-z0-9]+/gi, '-')}`,
+      expiration: {
+        maxEntries: 1000,
+        maxAgeSeconds: 60 * 60 * 24 * 30,
+      },
+      cacheableResponse: { statuses: [0, 200] },
+    },
+  }));
+
   return {
     plugins: [
       react(), 
@@ -19,10 +39,10 @@ export default defineConfig(({mode}) => {
           globPatterns: ['**/*.{js,css,html,ico,png,svg,json}'],
           runtimeCaching: [
             {
-              urlPattern: /^https:\/\/server\.arcgisonline\.com\/.*/i,
+              urlPattern: /^https?:\/\/[^/]+\/(tiles|terrain|fonts)\//i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'esri-satellite-tiles',
+                cacheName: 'local-map-assets',
                 expiration: {
                   maxEntries: 1000,
                   maxAgeSeconds: 60 * 60 * 24 * 30 // 30 days
@@ -31,29 +51,19 @@ export default defineConfig(({mode}) => {
               }
             },
             {
-              urlPattern: /^https:\/\/[a-d]?\.basemaps\.cartocdn\.com\/.*/i,
+              // Не кэшировать прокси карт — иначе после смены сети/VPN отдаются устаревшие ответы
+              urlPattern: /^https?:\/\/[^/]+\/api\/(?!map\/fetch).*/i,
               handler: 'CacheFirst',
               options: {
-                cacheName: 'carto-vector-tiles',
+                cacheName: 'internal-api-cache',
                 expiration: {
-                  maxEntries: 1000,
-                  maxAgeSeconds: 60 * 60 * 24 * 30
+                  maxEntries: 200,
+                  maxAgeSeconds: 60 * 30
                 },
                 cacheableResponse: { statuses: [0, 200] }
               }
             },
-            {
-              urlPattern: /^https:\/\/s3\.amazonaws\.com\/elevation-tiles-prod\/.*/i,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'mapzen-terrain-tiles',
-                expiration: {
-                  maxEntries: 500,
-                  maxAgeSeconds: 60 * 60 * 24 * 30
-                },
-                cacheableResponse: { statuses: [0, 200] }
-              }
-            }
+            ...externalRuntimeCaching,
           ]
         }
       })
@@ -68,6 +78,7 @@ export default defineConfig(({mode}) => {
     },
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      __APP_BUILD_ID__: JSON.stringify(appBuildId),
     },
     resolve: {
       alias: {
@@ -76,6 +87,14 @@ export default defineConfig(({mode}) => {
     },
     server: {
       hmr: process.env.DISABLE_HMR !== 'true',
+      proxy: env.VITE_INTERNAL_DATA_API_PROXY_TARGET
+        ? {
+            '/api': {
+              target: env.VITE_INTERNAL_DATA_API_PROXY_TARGET,
+              changeOrigin: true,
+            },
+          }
+        : undefined,
     },
   };
 });

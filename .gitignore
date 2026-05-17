@@ -2,7 +2,15 @@ node_modules/
 build/
 dist/
 coverage/
+internal-data/*
+!internal-data/.gitkeep
+internal-data/_analysis_report.json
+internal-data/db_cache.json
 .DS_Store
 *.log
 .env*
+!.env
 !.env.example
+*.txt
+*.TXT
+!.env.production.example

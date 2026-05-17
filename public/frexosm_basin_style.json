@@ -8,15 +8,15 @@
   "sources": {
     "planet": {
       "type": "vector",
-      "url": "https://frexosm.ru/tiles/basemap.json"
+      "url": "/tiles/basemap.json"
     },
     "basin": {
       "type": "vector",
-      "url": "https://frexosm.ru/tiles/river-basin.json"
+      "url": "/tiles/river-basin.json"
     },
     "mapzen-terrain-dem": {
       "tiles": [
-        "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png"
+        "/terrain/terrarium/{z}/{x}/{y}.png"
       ],
       "type": "raster-dem",
       "tileSize": 256
@@ -380,7 +380,7 @@
       }
     }
   },
-  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "glyphs": "/fonts/{fontstack}/{range}.pbf",
   "layers": [
     {
       "id": "background",

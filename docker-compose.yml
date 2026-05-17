@@ -1,0 +1,132 @@
+# cp deploy/docker.env .env  &&  docker compose --env-file .env up -d --build
+services:
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_ENABLE_EXTERNAL_NETWORK: ${VITE_ENABLE_EXTERNAL_NETWORK:-true}
+        # internal: Excel из ./internal-data; yandex: доп. синхронизация с Диска через API (серверу нужен интернет)
+        VITE_DATA_SOURCE: ${VITE_DATA_SOURCE:-internal}
+        VITE_INTERNAL_DATA_API_BASE: ${VITE_INTERNAL_DATA_API_BASE:-/api}
+        VITE_MAP_DEFAULT_TYPE: ${VITE_MAP_DEFAULT_TYPE:-satellite}
+        VITE_MAP_SATELLITE_TILES_URL: ${VITE_MAP_SATELLITE_TILES_URL:-/api/tiles/arcgis/{z}/{y}/{x}}
+        VITE_MAP_VECTOR_STYLE_URL: ${VITE_MAP_VECTOR_STYLE_URL:-https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json}
+        VITE_MAP_BASIN_STYLE_URL: ${VITE_MAP_BASIN_STYLE_URL:-/frexosm_basin_style.json}
+        VITE_MAP_ASSETS_BASE: ${VITE_MAP_ASSETS_BASE:-https://frexosm.ru}
+        VITE_NOMINATIM_ENABLED: ${VITE_NOMINATIM_ENABLED:-false}
+        VITE_NOMINATIM_URL: ${VITE_NOMINATIM_URL:-}
+        VITE_YANDEX_PUBLIC_KEY: ${VITE_YANDEX_PUBLIC_KEY:-https://disk.yandex.ru/d/LENyBdYBr2B3rA}
+    restart: unless-stopped
+    expose:
+      - "${WEBAPP_PORT:-8080}"
+    networks:
+      - app_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      service: "webapp"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:${WEBAPP_PORT:-8080}/index.html || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  internal-data-api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.internal-data-api
+    restart: unless-stopped
+    expose:
+      - "8787"
+    environment:
+      INTERNAL_DATA_HOST: ${INTERNAL_DATA_HOST:-0.0.0.0}
+      INTERNAL_DATA_DIR: ${INTERNAL_DATA_DIR:-/data}
+      INTERNAL_DATA_SYNC_DIR: ${INTERNAL_DATA_SYNC_DIR:-/cache}
+      YANDEX_PUBLIC_KEY: ${VITE_YANDEX_PUBLIC_KEY:-https://disk.yandex.ru/d/LENyBdYBr2B3rA}
+      YANDEX_API_BASE: ${VITE_YANDEX_API_BASE:-https://cloud-api.yandex.net/v1/disk/public/resources}
+      # Debug: set LOG_LEVEL=debug in .env to see all Yandex API requests
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - ./internal-data:/data:ro
+      - internal-data-sync:/cache
+    networks:
+      - app_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+    labels:
+      service: "internal-data-api"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:8787/api/health || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+
+  gateway:
+    image: nginx:1.27-alpine
+    depends_on:
+      webapp:
+        condition: service_healthy
+      internal-data-api:
+        condition: service_healthy
+    restart: unless-stopped
+    environment:
+      GATEWAY_HTTP_PORT: ${PUBLIC_PORT:-3030}
+      NGINX_ENVSUBST_FILTER: '^GATEWAY_HTTP_PORT$'
+    ports:
+      - "${PUBLIC_PORT:-3030}:${PUBLIC_PORT:-3030}"
+    volumes:
+      - ./deploy/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+    networks:
+      - app_net
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    labels:
+      service: "gateway"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q -O /dev/null http://127.0.0.1:${PUBLIC_PORT:-3030}/ || exit 1",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  optional-lint:
+    image: node:20-alpine
+    working_dir: /workspace
+    command: sh -c "npm ci && npm run lint"
+    volumes:
+      - ./:/workspace
+    profiles:
+      - optional-checks
+    networks:
+      - app_net
+
+volumes:
+  internal-data-sync:
+
+networks:
+  app_net:
+    driver: bridge

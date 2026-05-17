@@ -8,6 +8,7 @@ import { format } from 'date-fns';
 import { ru } from 'date-fns/locale';
 import { useAppStore } from '../store/appStore';
 import { SETTLEMENTS } from '../utils/riverData';
+import { publicAssetUrl } from '../config/runtimeConfig';
 import Tooltip from './Tooltip';
 import * as XLSX from 'xlsx';
 import html2canvas from 'html2canvas';
@@ -44,7 +45,7 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
   };
 
   React.useEffect(() => {
-    fetch('/docs_list.json').then(r => r.json()).then(setDocsList).catch(() => {});
+    fetch(publicAssetUrl('docs_list.json')).then(r => r.json()).then(setDocsList).catch(() => {});
   }, []);
 
   if (!isOpen && !isPage) return null;
@@ -119,11 +120,11 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
   //   ≤ 250 → red (danger)
   //   ≤ 500 → yellow (warning)
   //   > 500 → green (normal)
-  const getStatusColor = (diff: number | null) => {
-    if (diff === null) return 'bg-slate-100 text-slate-500';
-    if (diff < 0) return 'bg-red-100 text-red-700 font-bold border-red-200';
-    if (diff <= 250) return 'bg-red-100 text-red-700 font-bold border-red-200';
-    if (diff <= 500) return 'bg-amber-100 text-amber-700 border-amber-200';
+  const getStatusColor = (stn: any) => {
+    if (stn.latestLevel === null || stn.criticalLevel === null) return 'bg-slate-100 text-slate-500';
+    const ratio = stn.latestLevel / stn.criticalLevel;
+    if (ratio >= 0.7) return 'bg-red-100 text-red-700 font-bold border-red-200';
+    if (ratio >= 0.5) return 'bg-amber-100 text-amber-700 border-amber-200';
     return 'bg-green-100 text-green-700 border-green-200';
   };
 
@@ -181,7 +182,8 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
         'До критического, см': stn.diffToCrit ?? '',
       };
       allDates.forEach((d) => {
-        row[format(new Date(d), 'dd.MM.yyyy')] = stn.levels[d] ?? '';
+        const headerName = d.length > 10 ? format(new Date(d), 'dd.MM.yyyy HH:mm') : format(new Date(d), 'dd.MM.yyyy');
+        row[headerName] = stn.levels[d] ?? '';
       });
       return row;
     });
@@ -214,10 +216,14 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
     const dateLabel = format(reportDateObj, 'dd.MM.yy', { locale: ru });
     const baseName = `Пояснительная записка Для НАС на 07.00(мск) ${dateLabel}`;
     const withCritical = sorted.filter((s) => s.criticalLevel !== null && s.latestLevel !== null);
-    const danger = withCritical.filter((s) => s.diffToCrit !== null && s.diffToCrit <= 250);
-    const warning = withCritical.filter((s) => s.diffToCrit !== null && s.diffToCrit > 250 && s.diffToCrit <= 500);
-    const normal = withCritical.filter((s) => s.diffToCrit !== null && s.diffToCrit > 500);
-    const exceeded = withCritical.filter((s) => s.diffToCrit !== null && s.diffToCrit < 0);
+    const danger = withCritical.filter((s) => s.latestLevel !== null && s.criticalLevel !== null && (s.latestLevel / s.criticalLevel) >= 0.7);
+    const warning = withCritical.filter((s) => {
+      if (s.latestLevel === null || s.criticalLevel === null) return false;
+      const ratio = s.latestLevel / s.criticalLevel;
+      return ratio >= 0.5 && ratio < 0.7;
+    });
+    const normal = withCritical.filter((s) => s.latestLevel !== null && s.criticalLevel !== null && (s.latestLevel / s.criticalLevel) < 0.5);
+    const exceeded = withCritical.filter((s) => s.latestLevel !== null && s.criticalLevel !== null && s.latestLevel >= s.criticalLevel);
     const noCritical = sorted.filter((s) => s.criticalLevel === null);
 
     const topRisk = [...withCritical]
@@ -554,7 +560,7 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
                 {isPage ? (
                   allDates.map(date => (
                     <th key={date} className="py-3 px-3 font-semibold text-center border-r border-slate-100 last:border-0 min-w-[80px]">
-                      {format(new Date(date), 'd MMM', { locale: ru })}
+                      {format(new Date(date), date.length > 10 ? 'd MMM HH:mm' : 'd MMM', { locale: ru })}
                     </th>
                   ))
                 ) : (
@@ -601,10 +607,10 @@ export default function DatabaseViewer({ isOpen, onClose, isPage = false }: { is
                         <span className="font-semibold text-slate-500">{stn.criticalLevel !== null ? stn.criticalLevel : '—'}</span>
                       </td>
                       <td className="py-3 px-4 text-right">
-                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${getStatusColor(stn.diffToCrit)}`}>
-                          {stn.diffToCrit !== null && stn.diffToCrit < 0 && <AlertCircle className="w-3.5 h-3.5" />}
-                          {stn.diffToCrit !== null ? 
-                            (stn.diffToCrit < 0 ? `Превышен на ${Math.abs(stn.diffToCrit)} см` : `До выхода ${stn.diffToCrit} см`) 
+                        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-xs ${getStatusColor(stn)}`}>
+                          {stn.latestLevel !== null && stn.criticalLevel !== null && stn.latestLevel >= stn.criticalLevel && <AlertCircle className="w-3.5 h-3.5" />}
+                          {stn.latestLevel !== null && stn.criticalLevel !== null ? 
+                            (stn.latestLevel >= stn.criticalLevel ? `Превышен на ${stn.latestLevel - stn.criticalLevel} см` : `До выхода ${stn.criticalLevel - stn.latestLevel} см`) 
                             : 'Нет данных'}
                         </div>
                       </td>

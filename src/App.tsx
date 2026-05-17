@@ -12,6 +12,8 @@ import InteractiveTour, { TourStep } from './components/InteractiveTour';
 import Tooltip from './components/Tooltip';
 import { motion, AnimatePresence } from 'motion/react';
 import { SETTLEMENTS } from './utils/riverData';
+import { DATA_SOURCE_MODE } from './config/runtimeConfig';
+import { initDataFromServer } from './utils/serverData';
 
 const TOUR_STEPS: TourStep[] = [
   {
@@ -89,7 +91,14 @@ const TOUR_STEPS: TourStep[] = [
 ];
 
 export default function App() {
-  const { observations, currentDate, getDailySpeed, setCurrentDate, loadYearData } = useIceStore();
+  const {
+    observations,
+    currentDate,
+    getDailySpeed,
+    setCurrentDate,
+    loadYearData,
+    checkYandexForUpdates: checkIceYandexForUpdates,
+  } = useIceStore();
   const {
     selectedSettlement, setSelectedSettlement,
     isAdmin, setIsAdmin,
@@ -97,18 +106,28 @@ export default function App() {
     isSidebarOpen, setIsSidebarOpen,
     isHelpOpen, setIsHelpOpen,
     setMapCenter,
+    mapViewportIceSpeed,
   } = useAppStore();
-  const { loadData, checkYandexForUpdates } = useWaterLevelStore();
+  const { loadData } = useWaterLevelStore();
   const [isDbOpen, setIsDbOpen] = useState(false);
   const [isTourActive, setIsTourActive] = useState(false);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   React.useEffect(() => {
     let cancelled = false;
     (async () => {
+      console.log('[App] Initializing data...');
+      // Load local cache if any
       await loadData();
-      if (cancelled) return;
-      // The map should render immediately from the local database/snapshot.
-      // Remote Yandex Disk sync runs in the periodic 5-minute updater below.
+      
+      // Load fresh pre-parsed data from server
+      const ok = await initDataFromServer();
+      if (ok) {
+        setIsDataLoaded(true);
+      } else if (DATA_SOURCE_MODE !== 'none') {
+        // Fallback or handle error
+        console.warn('[App] Failed to load server data, will retry in background');
+      }
     })();
     return () => {
       cancelled = true;
@@ -116,11 +135,14 @@ export default function App() {
   }, [loadData]);
 
   React.useEffect(() => {
-    const timer = window.setInterval(() => {
-      checkYandexForUpdates().catch(() => {});
+    if (DATA_SOURCE_MODE === 'none') return;
+    // Auto-refresh from server every 15 mins
+    const timer = window.setInterval(async () => {
+      console.log('[App] Periodic data refresh...');
+      await initDataFromServer();
     }, WATER_LEVEL_AUTO_SYNC_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [checkYandexForUpdates]);
+  }, []);
 
   React.useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -153,7 +175,8 @@ export default function App() {
     loadYearData(selectedYear);
   }, [selectedYear, loadYearData]);
 
-  const currentSpeed = getDailySpeed();
+  const dailySpeed = getDailySpeed();
+  const currentSpeed = mapViewportIceSpeed ?? dailySpeed;
 
   const handleStartTour = useCallback(() => {
     // Ensure sidebar is open for the tour
@@ -166,7 +189,23 @@ export default function App() {
   }, []);
 
   return (
-    <div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans relative">
+    <motion.div className="flex h-screen w-full bg-slate-50 overflow-hidden font-sans relative">
+      {!isDataLoaded && DATA_SOURCE_MODE !== 'none' && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute inset-0 z-[200] flex items-center justify-center bg-slate-900/30 backdrop-blur-sm"
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-white rounded-2xl shadow-xl px-8 py-6 flex flex-col items-center gap-3"
+          >
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
+            <p className="text-sm font-semibold text-slate-700">Загрузка данных с сервера…</p>
+          </motion.div>
+        </motion.div>
+      )}
       <div className="flex-1 relative w-full h-full">
         <MapEditor />
 
@@ -186,14 +225,17 @@ export default function App() {
 
         {/* Speed / Distance Indicator */}
         {currentSpeed !== null && (
-          <div className="absolute bottom-16 left-3 z-10 bg-white/95 backdrop-blur-md border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 min-w-[240px] hover:scale-105 print-hide">
+          <div className="absolute bottom-16 left-3 z-10 bg-white border border-slate-200 shadow-2xl rounded-2xl p-4 flex items-center gap-4 transition-all duration-300 min-w-[240px] hover:scale-105 print-hide">
             <div className="bg-blue-600 p-2.5 rounded-xl text-white shadow-lg shadow-blue-100">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
             <div>
-              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">Скорость ледохода (на участке)</div>
+              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider mb-0.5">
+                Скорость ледохода
+                {mapViewportIceSpeed ? ' (участок у центра карты)' : ' (средняя по сроку)'}
+              </div>
               <div className="text-2xl font-black text-slate-800 leading-tight flex items-baseline gap-1">
                 {currentSpeed.speed.toFixed(1)} <span className="text-xs font-bold text-slate-400 uppercase">км/сутки</span>
               </div>
@@ -265,6 +307,6 @@ export default function App() {
         isActive={isTourActive}
         onFinish={handleFinishTour}
       />
-    </div>
+    </motion.div>
   );
 }
